@@ -972,8 +972,8 @@ const SETTINGS_SCHEMA = {
         label: 'Enable Usage Statistics',
         category: 'Privacy',
         requiresRestart: true,
-        default: true,
-        description: 'Enable collection of usage statistics',
+        default: false, // AFOT: disabled by default — no data sent to Google
+        description: 'Enable collection of usage statistics (disabled in this build)',
         showInDialog: false,
       },
     },

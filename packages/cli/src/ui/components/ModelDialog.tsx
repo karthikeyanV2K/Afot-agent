@@ -71,7 +71,7 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
   const useLatestFlashLite = config?.hasLatestFlashLiteGAAccess?.() ?? false;
   const selectedAuthType = settings.merged.security.auth.selectedType;
   const useCustomToolModel =
-    useGemini31 && selectedAuthType === AuthType.USE_GEMINI;
+    useGemini31 && selectedAuthType === AuthType.AFOT_AUTH;
 
   const manualModelSelected = useMemo(() => {
     if (

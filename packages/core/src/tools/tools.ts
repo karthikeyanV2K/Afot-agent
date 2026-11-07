@@ -26,6 +26,12 @@ import {
   isBuildFile,
   extractFilePathFromArgs,
 } from '../utils/buildFileUtils.js';
+import {
+  isPathAllowed,
+  grantPath,
+  normalizeGrantTarget,
+} from '../core/afotPathGuard.js';
+import type { PathPermissionDecision, Message } from '../confirmation-bus/types.js';
 
 /**
 /**
@@ -178,6 +184,82 @@ export abstract class BaseToolInvocation<
   ) {}
 
   abstract getDescription(): string;
+
+  /**
+   * Checks whether the given path is allowed under the AFOT session sandbox.
+   * If the path is inside the session root it returns immediately.
+   * If outside, it publishes a PATH_PERMISSION_REQUEST on the message bus and
+   * waits for the user to respond (Allow Once / Allow Always / Deny).
+   *
+   * Throws an Error with ToolErrorType.USER_DENIED if the user denies access.
+   */
+  protected async checkPathPermission(
+    targetPath: string,
+    operation: 'read' | 'write' | 'execute',
+    abortSignal: AbortSignal,
+  ): Promise<void> {
+    if (isPathAllowed(targetPath)) return;
+
+    if (!this.messageBus || !this._toolName) {
+      return;
+    }
+
+    // Gracefully handle test mocks that don't fully implement MessageBus
+    if (typeof (this.messageBus as { subscribe?: unknown }).subscribe !== 'function') {
+      return;
+    }
+
+    const grantTarget = normalizeGrantTarget(targetPath);
+    const correlationId = randomUUID();
+
+    const decision = await new Promise<PathPermissionDecision>(
+      (resolve, reject) => {
+        const onAbort = () => {
+          reject(new Error('AbortError'));
+        };
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+
+        const handler = (msg: Message) => {
+          if (
+            msg.type === MessageBusType.PATH_PERMISSION_RESPONSE &&
+            msg.correlationId === correlationId
+          ) {
+            abortSignal.removeEventListener('abort', onAbort);
+            this.messageBus.unsubscribe(
+              MessageBusType.PATH_PERMISSION_RESPONSE,
+              handler,
+            );
+            resolve(msg.decision);
+          }
+        };
+
+        this.messageBus.subscribe(
+          MessageBusType.PATH_PERMISSION_RESPONSE,
+          handler,
+        );
+
+        void this.messageBus.publish({
+          type: MessageBusType.PATH_PERMISSION_REQUEST,
+          correlationId,
+          requestedPath: targetPath,
+          grantTarget,
+          toolName: this._toolDisplayName ?? this._toolName ?? 'tool',
+          operation,
+        } as Message);
+      },
+    );
+
+    if (decision === 'deny') {
+      throw Object.assign(
+        new Error(
+          `Access to "${grantTarget}" was denied. The path is outside the session directory.`,
+        ),
+        { toolErrorType: ToolErrorType.USER_DENIED },
+      );
+    }
+
+    grantPath(grantTarget, decision === 'allow_always' ? 'always' : 'once');
+  }
 
   getDisplayTitle(): string {
     return this.getDescription();

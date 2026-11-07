@@ -191,7 +191,7 @@ describe('BuiltinCommandLoader', () => {
   it('should include upgrade command when authType is login_with_google', async () => {
     const { AuthType } = await import('@google/gemini-cli-core');
     (mockConfig.getContentGeneratorConfig as Mock).mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
     const loader = new BuiltinCommandLoader(mockConfig);
     const commands = await loader.loadCommands(new AbortController().signal);

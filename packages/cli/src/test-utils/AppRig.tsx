@@ -238,7 +238,7 @@ export class AppRig {
       await this.config!.initialize();
       // Since we mocked useAuthCommand, we must manually trigger the first
       // refreshAuth to ensure contentGenerator is initialized.
-      await this.config!.refreshAuth(AuthType.USE_GEMINI);
+      await this.config!.refreshAuth(AuthType.AFOT_AUTH);
     });
   }
 
@@ -259,7 +259,7 @@ export class AppRig {
       // For live tests, we allow falling through to the real shell service if no mock matches
       MockShellExecutionService.setPassthrough(true);
     }
-    vi.stubEnv('GEMINI_DEFAULT_AUTH_TYPE', AuthType.USE_GEMINI);
+    vi.stubEnv('GEMINI_DEFAULT_AUTH_TYPE', AuthType.AFOT_AUTH);
   }
 
   private createRigSettings(): LoadedSettings {
@@ -269,7 +269,7 @@ export class AppRig {
         settings: {
           security: {
             auth: {
-              selectedType: AuthType.USE_GEMINI,
+              selectedType: AuthType.AFOT_AUTH,
               useExternal: true,
             },
             folderTrust: {
@@ -286,7 +286,7 @@ export class AppRig {
       merged: {
         security: {
           auth: {
-            selectedType: AuthType.USE_GEMINI,
+            selectedType: AuthType.AFOT_AUTH,
             useExternal: true,
           },
           folderTrust: {

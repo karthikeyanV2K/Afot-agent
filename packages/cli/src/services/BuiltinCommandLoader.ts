@@ -21,6 +21,7 @@ import {
 import { aboutCommand } from '../ui/commands/aboutCommand.js';
 import { agentsCommand } from '../ui/commands/agentsCommand.js';
 import { authCommand } from '../ui/commands/authCommand.js';
+import { providerCommand } from '../ui/commands/providerCommand.js';
 import { bugCommand } from '../ui/commands/bugCommand.js';
 import { bugMemoryCommand } from '../ui/commands/bugMemoryCommand.js';
 import { chatCommand, debugCommand } from '../ui/commands/chatCommand.js';
@@ -124,6 +125,7 @@ export class BuiltinCommandLoader implements ICommandLoader {
       aboutCommand,
       ...(this.config?.isAgentsEnabled() ? [agentsCommand] : []),
       authCommand,
+      providerCommand,
       bugCommand,
       bugMemoryCommand,
       {
@@ -234,7 +236,7 @@ export class BuiltinCommandLoader implements ICommandLoader {
       terminalSetupCommand,
       ...(this.config?.isVoiceModeEnabled() ? [voiceCommand] : []),
       ...(this.config?.getContentGeneratorConfig()?.authType ===
-      AuthType.LOGIN_WITH_GOOGLE
+      AuthType.AFOT_AUTH
         ? [upgradeCommand]
         : []),
     ];

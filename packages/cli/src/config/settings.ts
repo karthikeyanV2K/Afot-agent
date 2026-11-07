@@ -675,7 +675,7 @@ export function setUpCloudShellEnvironment(
 
   let value: string | undefined = 'cloudshell-gca';
 
-  if (selectedAuthType === AuthType.USE_VERTEX_AI) {
+  if (selectedAuthType === AuthType.GATEWAY) {
     value = process.env[USER_GCP_PROJECT];
   }
 

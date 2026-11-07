@@ -36,7 +36,7 @@ describe('upgradeCommand', () => {
         agentContext: {
           config: {
             getContentGeneratorConfig: vi.fn().mockReturnValue({
-              authType: AuthType.LOGIN_WITH_GOOGLE,
+              authType: AuthType.AFOT_AUTH,
             }),
             getUserTierName: vi.fn().mockReturnValue(undefined),
           },
@@ -66,7 +66,7 @@ describe('upgradeCommand', () => {
     vi.mocked(
       mockContext.services.agentContext!.config.getContentGeneratorConfig,
     ).mockReturnValue({
-      authType: AuthType.USE_GEMINI,
+      authType: AuthType.AFOT_AUTH,
     });
 
     if (!upgradeCommand.action) {

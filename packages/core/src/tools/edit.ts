@@ -914,6 +914,9 @@ class EditToolInvocation
    * @returns Result of the edit operation
    */
   async execute({ abortSignal: signal }: ExecuteOptions): Promise<ToolResult> {
+    // AFOT path guard
+    await this.checkPathPermission(this.resolvedPath, 'write', signal);
+
     const validationError = this.config.validatePathAccess(this.resolvedPath);
     if (validationError) {
       return {

@@ -95,7 +95,7 @@ describe('Auto Routing Fallback Integration', () => {
     client = new BaseLlmClient(
       fakeGenerator,
       config,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
 
     let attemptsPro = 0;
@@ -175,7 +175,7 @@ describe('Auto Routing Fallback Integration', () => {
     const clientNonAuto = new BaseLlmClient(
       fakeGenerator,
       configNonAuto,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
 
     let attemptsPro = 0;
@@ -257,7 +257,7 @@ describe('Auto Routing Fallback Integration', () => {
     client = new BaseLlmClient(
       fakeGenerator,
       config,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
 
     let attemptsPro = 0;
@@ -341,7 +341,7 @@ describe('Auto Routing Fallback Integration', () => {
     const clientDynamic = new BaseLlmClient(
       fakeGenerator,
       configDynamic,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
 
     let attemptsPro = 0;
@@ -420,7 +420,7 @@ describe('Auto Routing Fallback Integration', () => {
     client = new BaseLlmClient(
       fakeGenerator,
       config,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
 
     let attemptsPro = 0;
@@ -528,7 +528,7 @@ describe('Auto Routing Fallback Integration', () => {
     client = new BaseLlmClient(
       fakeGenerator,
       config,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
 
     let attemptsPro = 0;
@@ -609,7 +609,7 @@ describe('Auto Routing Fallback Integration', () => {
     vi.spyOn(config, 'getGemini31LaunchedSync').mockReturnValue(true);
     vi.spyOn(config, 'getUseCustomToolModelSync').mockReturnValue(true);
 
-    client = new BaseLlmClient(fakeGenerator, config, AuthType.USE_GEMINI);
+    client = new BaseLlmClient(fakeGenerator, config, AuthType.AFOT_AUTH);
 
     let attemptsProTurn1 = 0;
     let attemptsFlashTurn1 = 0;

@@ -25,6 +25,8 @@ import { resolveToolDeclaration } from './definitions/resolver.js';
 import { LlmRole } from '../telemetry/llmRole.js';
 import type { AgentLoopContext } from '../config/agent-loop-context.js';
 import { wrapUntrusted } from '../utils/textUtils.js';
+import { afotWebSearch, formatSearchResults } from '../core/afotWebSearch.js';
+import { AuthType } from '../core/contentGenerator.js';
 
 interface GroundingChunkWeb {
   uri?: string;
@@ -185,6 +187,31 @@ class WebSearchToolInvocation extends BaseToolInvocation<
           returnDisplay: 'Search cancelled.',
         };
       }
+
+      // AFOT fallback — when Gemini grounding is unavailable (AFOT_AUTH provider),
+      // use the provider-agnostic web search (Brave/Serper/Tavily/DuckDuckGo)
+      const authType = this.context.config.getContentGeneratorConfig()?.authType;
+      if (authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY) {
+        debugLogger.log(
+          'AFOT: Gemini web-search unavailable, using AFOT web search fallback',
+        );
+        try {
+          const response = await afotWebSearch(this.params.query);
+          const formatted = formatSearchResults(response);
+          return {
+            llmContent: wrapUntrusted(formatted),
+            returnDisplay: `Search results for "${this.params.query}" (via ${response.provider}).`,
+            sources: response.results.map((r) => ({
+              web: { title: r.title, uri: r.url },
+            })) as GroundingChunkItem[],
+          };
+        } catch (fallbackErr) {
+          debugLogger.error(
+            `AFOT web search fallback also failed: ${fallbackErr}`,
+          );
+        }
+      }
+
       const errorMessage = `Error during web search for query "${
         this.params.query
       }": ${getErrorMessage(error)}`;

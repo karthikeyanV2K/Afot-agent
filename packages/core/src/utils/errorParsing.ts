@@ -9,10 +9,9 @@ import { DEFAULT_GEMINI_FLASH_MODEL } from '../config/models.js';
 import type { UserTierId } from '../code_assist/types.js';
 import { AuthType } from '../core/contentGenerator.js';
 
-const RATE_LIMIT_ERROR_MESSAGE_USE_GEMINI =
-  '\nPlease wait and try again later. To increase your limits, request a quota increase through AI Studio, or switch to another /auth method';
-const RATE_LIMIT_ERROR_MESSAGE_VERTEX =
-  '\nPlease wait and try again later. To increase your limits, request a quota increase through Vertex, or switch to another /auth method';
+const RATE_LIMIT_ERROR_MESSAGE_AFOT =
+  '\nPlease wait and try again later. To increase your limits, check your provider quota or switch to another provider in ~/.afot/auth.json';
+
 const getRateLimitErrorMessageDefault = (
   fallbackModel: string = DEFAULT_GEMINI_FLASH_MODEL,
 ) =>
@@ -23,10 +22,8 @@ function getRateLimitMessage(
   fallbackModel?: string,
 ): string {
   switch (authType) {
-    case AuthType.USE_GEMINI:
-      return RATE_LIMIT_ERROR_MESSAGE_USE_GEMINI;
-    case AuthType.USE_VERTEX_AI:
-      return RATE_LIMIT_ERROR_MESSAGE_VERTEX;
+    case AuthType.AFOT_AUTH:
+      return RATE_LIMIT_ERROR_MESSAGE_AFOT;
     default:
       return getRateLimitErrorMessageDefault(fallbackModel);
   }

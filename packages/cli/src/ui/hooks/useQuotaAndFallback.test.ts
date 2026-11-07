@@ -76,7 +76,7 @@ describe('useQuotaAndFallback', () => {
     // Spy on the method that requires the private field and mock its return.
     // This is cleaner than modifying the config class for tests.
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     mockHistoryManager = {
@@ -127,7 +127,7 @@ describe('useQuotaAndFallback', () => {
     it('should show fallback dialog but omit switch to API key message if authType is not LOGIN_WITH_GOOGLE', async () => {
       // Override the default mock from beforeEach for this specific test
       vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-        authType: AuthType.USE_GEMINI,
+        authType: AuthType.AFOT_AUTH,
       });
 
       const { result } = await renderHook(() =>
@@ -730,7 +730,7 @@ describe('useQuotaAndFallback', () => {
 
       it('should handle ModelNotFoundError with Vertex AI by displaying region-specific availability message and documentation link', async () => {
         vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-          authType: AuthType.USE_VERTEX_AI,
+          authType: AuthType.GATEWAY,
         });
         vi.stubEnv('GOOGLE_CLOUD_LOCATION', 'us-central1');
 
@@ -779,7 +779,7 @@ describe('useQuotaAndFallback', () => {
 
       it('should handle ModelNotFoundError with Vertex AI and invalid model by displaying generic not found error message', async () => {
         vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-          authType: AuthType.USE_VERTEX_AI,
+          authType: AuthType.GATEWAY,
         });
         vi.stubEnv('GOOGLE_CLOUD_LOCATION', 'us-central1');
 

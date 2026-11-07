@@ -48,7 +48,7 @@ export const UserIdentity: React.FC<UserIdentityProps> = ({ config }) => {
       {/* User Email /auth */}
       <Box>
         <Text color={theme.text.primary} wrap="truncate-end">
-          {authType === AuthType.LOGIN_WITH_GOOGLE ? (
+          {authType === AuthType.AFOT_AUTH ? (
             <Text>
               <Text bold>Signed in with Google{email ? ':' : ''}</Text>
               {email ? ` ${email}` : ''}

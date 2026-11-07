@@ -1442,7 +1442,7 @@ describe('gemini.tsx main function exit codes', () => {
       }),
     );
     vi.mocked(validateNonInteractiveAuth).mockResolvedValue(
-      AuthType.USE_GEMINI,
+      AuthType.AFOT_AUTH,
     );
 
     vi.mocked(loadSettings).mockReturnValue(
@@ -1474,7 +1474,7 @@ describe('gemini.tsx main function exit codes', () => {
       processExitSpy.mockRestore();
     }
 
-    expect(refreshAuthSpy).toHaveBeenCalledWith(AuthType.USE_GEMINI);
+    expect(refreshAuthSpy).toHaveBeenCalledWith(AuthType.AFOT_AUTH);
   });
 });
 

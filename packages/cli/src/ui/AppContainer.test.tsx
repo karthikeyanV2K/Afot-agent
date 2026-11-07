@@ -3202,7 +3202,7 @@ describe('AppContainer State Management', () => {
     it('should render placeholder banner text for USE_GEMINI auth type', async () => {
       const config = makeFakeConfig();
       vi.spyOn(config, 'getContentGeneratorConfig').mockReturnValue({
-        authType: AuthType.USE_GEMINI,
+        authType: AuthType.AFOT_AUTH,
         apiKey: 'fake-key',
       });
       let unmount: () => void;

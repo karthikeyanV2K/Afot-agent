@@ -35,6 +35,7 @@ describe('WebSearchTool', () => {
         return mockGeminiClient;
       },
       getProxy: () => undefined,
+      getContentGeneratorConfig: () => ({ authType: undefined }),
       generationConfigService: {
         getResolvedConfig: vi.fn().mockImplementation(({ model }) => ({
           model,

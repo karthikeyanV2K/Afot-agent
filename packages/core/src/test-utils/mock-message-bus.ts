@@ -52,6 +52,15 @@ export class MockMessageBus {
 
     // Emit the message to subscribers (mimicking real MessageBus behavior)
     this.emit(message.type, message);
+
+    // Auto-respond to AFOT path permission requests (allow once by default in tests)
+    if (message.type === MessageBusType.PATH_PERMISSION_REQUEST) {
+      this.emit(MessageBusType.PATH_PERMISSION_RESPONSE, {
+        type: MessageBusType.PATH_PERMISSION_RESPONSE,
+        correlationId: (message as { correlationId: string }).correlationId,
+        decision: 'allow_once',
+      } as Message);
+    }
   });
 
   /**

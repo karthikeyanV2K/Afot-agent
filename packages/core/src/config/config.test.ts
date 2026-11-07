@@ -698,7 +698,7 @@ describe('Server Config (config.ts)', () => {
     });
 
     describe('getGemini31LaunchedSync', () => {
-      it.each([AuthType.USE_GEMINI, AuthType.USE_VERTEX_AI, AuthType.GATEWAY])(
+      it.each([AuthType.AFOT_AUTH, AuthType.GATEWAY, AuthType.GATEWAY])(
         'should return true for %s',
         async (authType) => {
           const config = new Config(baseParams);
@@ -724,16 +724,16 @@ describe('Server Config (config.ts)', () => {
         const config = new Config(baseParams);
 
         vi.mocked(createContentGeneratorConfig).mockResolvedValue({
-          authType: AuthType.LOGIN_WITH_GOOGLE,
+          authType: AuthType.AFOT_AUTH,
         });
 
-        await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+        await config.refreshAuth(AuthType.AFOT_AUTH);
         expect(config.getGemini31LaunchedSync()).toBe(true);
       });
     });
 
     describe('getProModelNoAccessSync', () => {
-      it('should return experiment value for AuthType.LOGIN_WITH_GOOGLE', async () => {
+      it('should return experiment value for AuthType.AFOT_AUTH', async () => {
         vi.mocked(getExperiments).mockResolvedValue({
           experimentIds: [],
           flags: {
@@ -744,9 +744,9 @@ describe('Server Config (config.ts)', () => {
         });
         const config = new Config(baseParams);
         vi.mocked(createContentGeneratorConfig).mockResolvedValue({
-          authType: AuthType.LOGIN_WITH_GOOGLE,
+          authType: AuthType.AFOT_AUTH,
         });
-        await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+        await config.refreshAuth(AuthType.AFOT_AUTH);
         expect(config.getProModelNoAccessSync()).toBe(true);
       });
 
@@ -778,9 +778,9 @@ describe('Server Config (config.ts)', () => {
         });
         const config = new Config(baseParams);
         vi.mocked(createContentGeneratorConfig).mockResolvedValue({
-          authType: AuthType.USE_GEMINI,
+          authType: AuthType.AFOT_AUTH,
         });
-        await config.refreshAuth(AuthType.USE_GEMINI);
+        await config.refreshAuth(AuthType.AFOT_AUTH);
         expect(config.getProModelNoAccessSync()).toBe(false);
       });
     });
@@ -890,7 +890,7 @@ describe('Server Config (config.ts)', () => {
   describe('refreshAuth', () => {
     it('should refresh auth and update config', async () => {
       const config = new Config(baseParams);
-      const authType = AuthType.USE_GEMINI;
+      const authType = AuthType.AFOT_AUTH;
       const mockContentConfig = {
         apiKey: 'test-key',
       };
@@ -919,7 +919,7 @@ describe('Server Config (config.ts)', () => {
       config.activateFallbackMode('fallback-model', 'failed-model');
       expect(config.getFallbackOverride('failed-model')).toBe('fallback-model');
 
-      await config.refreshAuth(AuthType.USE_GEMINI);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
       expect(config.getFallbackOverride('failed-model')).toBeUndefined();
     });
@@ -936,11 +936,11 @@ describe('Server Config (config.ts)', () => {
 
       vi.mocked(createContentGeneratorConfig).mockResolvedValue({});
 
-      await config.refreshAuth(AuthType.USE_VERTEX_AI);
+      await config.refreshAuth(AuthType.GATEWAY);
 
       expect(createContentGeneratorConfig).toHaveBeenCalledWith(
         config,
-        AuthType.USE_VERTEX_AI,
+        AuthType.GATEWAY,
         undefined,
         undefined,
         undefined,
@@ -960,7 +960,7 @@ describe('Server Config (config.ts)', () => {
           }) as Partial<ContentGeneratorConfig> as ContentGeneratorConfig,
       );
 
-      await config.refreshAuth(AuthType.USE_GEMINI);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
       expect(spy).toHaveBeenCalled();
     });
@@ -975,9 +975,9 @@ describe('Server Config (config.ts)', () => {
           }) as Partial<ContentGeneratorConfig> as ContentGeneratorConfig,
       );
 
-      await config.refreshAuth(AuthType.USE_GEMINI);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
-      await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
       const loopContext: AgentLoopContext = config;
       expect(
@@ -995,9 +995,9 @@ describe('Server Config (config.ts)', () => {
           }) as Partial<ContentGeneratorConfig> as ContentGeneratorConfig,
       );
 
-      await config.refreshAuth(AuthType.USE_GEMINI);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
-      await config.refreshAuth(AuthType.USE_VERTEX_AI);
+      await config.refreshAuth(AuthType.GATEWAY);
 
       const loopContext: AgentLoopContext = config;
       expect(
@@ -1015,9 +1015,9 @@ describe('Server Config (config.ts)', () => {
           }) as Partial<ContentGeneratorConfig> as ContentGeneratorConfig,
       );
 
-      await config.refreshAuth(AuthType.USE_VERTEX_AI);
+      await config.refreshAuth(AuthType.GATEWAY);
 
-      await config.refreshAuth(AuthType.USE_GEMINI);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
       const loopContext: AgentLoopContext = config;
       expect(
@@ -1040,7 +1040,7 @@ describe('Server Config (config.ts)', () => {
         model: PREVIEW_GEMINI_MODEL_AUTO,
       });
 
-      await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
       await config.getExperimentsAsync();
 
       await vi.waitFor(() => {
@@ -1063,7 +1063,7 @@ describe('Server Config (config.ts)', () => {
         model: PREVIEW_GEMINI_MODEL_AUTO,
       });
 
-      await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
       expect(config.getModel()).toBe(PREVIEW_GEMINI_MODEL_AUTO);
     });
@@ -2583,7 +2583,7 @@ describe('BaseLlmClient Lifecycle', () => {
 
   it('should successfully initialize BaseLlmClient after refreshAuth is called', async () => {
     const config = new Config(baseParams);
-    const authType = AuthType.USE_GEMINI;
+    const authType = AuthType.AFOT_AUTH;
     const mockContentConfig = { model: 'gemini-flash', apiKey: 'test-key' };
 
     vi.mocked(createContentGeneratorConfig).mockResolvedValue(
@@ -3567,7 +3567,7 @@ describe('Config Quota & Preview Model Access', () => {
       const mockTierName = 'Standard Tier';
 
       vi.mocked(createContentGeneratorConfig).mockResolvedValue({
-        authType: AuthType.USE_GEMINI,
+        authType: AuthType.AFOT_AUTH,
       } as ContentGeneratorConfig);
 
       vi.mocked(createContentGenerator).mockResolvedValue({
@@ -3575,7 +3575,7 @@ describe('Config Quota & Preview Model Access', () => {
         userTierName: mockTierName,
       } as Partial<CodeAssistServer> as CodeAssistServer);
 
-      await config.refreshAuth(AuthType.USE_GEMINI);
+      await config.refreshAuth(AuthType.AFOT_AUTH);
 
       expect(config.getUserTier()).toBe(mockTier);
       expect(config.getUserTierName()).toBe(mockTierName);
@@ -4347,7 +4347,7 @@ describe('Model Persistence Bug Fix (#19864)', () => {
 
   it('should NOT reset preview model for CodeAssist auth when refreshUserQuota is not called (no projectId)', async () => {
     const mockContentConfig = {
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     } as Partial<ContentGeneratorConfig> as ContentGeneratorConfig;
 
     const mockContentGenerator = {
@@ -4366,7 +4366,7 @@ describe('Model Persistence Bug Fix (#19864)', () => {
     expect(config.getModel()).toBe(PREVIEW_GEMINI_3_1_MODEL);
 
     // Call refreshAuth to simulate restart (CodeAssist auth, no projectId)
-    await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+    await config.refreshAuth(AuthType.AFOT_AUTH);
 
     // Verify the model was NOT reset (bug fix)
     expect(config.getModel()).toBe(PREVIEW_GEMINI_3_1_MODEL);
@@ -4375,7 +4375,7 @@ describe('Model Persistence Bug Fix (#19864)', () => {
 
   it('should NOT reset preview model for USE_GEMINI (hasAccessToPreviewModel is set to true)', async () => {
     const mockContentConfig = {
-      authType: AuthType.USE_GEMINI,
+      authType: AuthType.AFOT_AUTH,
     } as Partial<ContentGeneratorConfig> as ContentGeneratorConfig;
 
     const mockContentGenerator = {
@@ -4393,7 +4393,7 @@ describe('Model Persistence Bug Fix (#19864)', () => {
     expect(config.getModel()).toBe(PREVIEW_GEMINI_3_1_MODEL);
 
     // Call refreshAuth
-    await config.refreshAuth(AuthType.USE_GEMINI);
+    await config.refreshAuth(AuthType.AFOT_AUTH);
 
     // For USE_GEMINI, hasAccessToPreviewModel should be set to true
     // So the model should NOT be reset
@@ -4491,7 +4491,7 @@ describe('hasLatestFlashGAAccess model setting', () => {
 
   it('should set DEFAULT_GEMINI_FLASH_MODEL to gemini-3.8-flash and PREVIEW_GEMINI_FLASH_MODEL to gemini-3-flash-preview if hasLatestFlashGAAccess returns true and authType is USE_GEMINI', () => {
     const config = new Config(baseParams);
-    config['contentGeneratorConfig'] = { authType: AuthType.USE_GEMINI };
+    config['contentGeneratorConfig'] = { authType: AuthType.AFOT_AUTH };
 
     // Set experiment to return true for LATEST_FLASH_GA_LAUNCHED
     config.setExperiments({
@@ -4513,7 +4513,7 @@ describe('hasLatestFlashGAAccess model setting', () => {
 
   it('should set DEFAULT_GEMINI_FLASH_MODEL and PREVIEW_GEMINI_FLASH_MODEL to gemini-3.8-flash if hasLatestFlashGAAccess returns true and authType is not USE_GEMINI', () => {
     const config = new Config(baseParams);
-    config['contentGeneratorConfig'] = { authType: AuthType.LOGIN_WITH_GOOGLE };
+    config['contentGeneratorConfig'] = { authType: AuthType.AFOT_AUTH };
 
     // Set experiment to return true for LATEST_FLASH_GA_LAUNCHED
     config.setExperiments({
@@ -4533,7 +4533,7 @@ describe('hasLatestFlashGAAccess model setting', () => {
     expect(PREVIEW_GEMINI_FLASH_MODEL).toBe('gemini-3.8-flash');
   });
 
-  it.each([AuthType.USE_GEMINI, AuthType.USE_VERTEX_AI, AuthType.GATEWAY])(
+  it.each([AuthType.AFOT_AUTH, AuthType.GATEWAY, AuthType.GATEWAY])(
     'should return true even if experiment flag is false when authType is %s',
     (authType) => {
       const config = new Config(baseParams);
@@ -4551,7 +4551,7 @@ describe('hasLatestFlashGAAccess model setting', () => {
       const result = config.hasLatestFlashGAAccess();
       expect(result).toBe(true);
 
-      if (authType === AuthType.USE_GEMINI) {
+      if (authType === AuthType.AFOT_AUTH) {
         expect(DEFAULT_GEMINI_FLASH_MODEL).toBe('gemini-3.8-flash');
         expect(PREVIEW_GEMINI_FLASH_MODEL).toBe('gemini-3-flash-preview');
       } else {
@@ -4563,7 +4563,7 @@ describe('hasLatestFlashGAAccess model setting', () => {
 
   it('should return false if experiment flag is false when authType is not in launch list (e.g. LOGIN_WITH_GOOGLE)', () => {
     const config = new Config(baseParams);
-    config['contentGeneratorConfig'] = { authType: AuthType.LOGIN_WITH_GOOGLE };
+    config['contentGeneratorConfig'] = { authType: AuthType.AFOT_AUTH };
 
     config.setExperiments({
       experimentIds: [],
@@ -4599,7 +4599,7 @@ describe('hasLatestFlashLiteGAAccess model setting', () => {
     resetModelsForTesting();
   });
 
-  it.each([AuthType.USE_GEMINI, AuthType.USE_VERTEX_AI, AuthType.GATEWAY])(
+  it.each([AuthType.AFOT_AUTH, AuthType.GATEWAY, AuthType.GATEWAY])(
     'should return true and set DEFAULT_GEMINI_FLASH_LITE_MODEL even if experiment flag is false when authType is %s',
     (authType) => {
       const config = new Config(baseParams);
@@ -4622,7 +4622,7 @@ describe('hasLatestFlashLiteGAAccess model setting', () => {
 
   it('should return true and set DEFAULT_GEMINI_FLASH_LITE_MODEL if experiment flag is true for other auth types', () => {
     const config = new Config(baseParams);
-    config['contentGeneratorConfig'] = { authType: AuthType.LOGIN_WITH_GOOGLE };
+    config['contentGeneratorConfig'] = { authType: AuthType.AFOT_AUTH };
 
     config.setExperiments({
       experimentIds: [],
@@ -4640,7 +4640,7 @@ describe('hasLatestFlashLiteGAAccess model setting', () => {
 
   it('should return false and keep base model if experiment flag is false for other auth types', () => {
     const config = new Config(baseParams);
-    config['contentGeneratorConfig'] = { authType: AuthType.LOGIN_WITH_GOOGLE };
+    config['contentGeneratorConfig'] = { authType: AuthType.AFOT_AUTH };
 
     config.setExperiments({
       experimentIds: [],

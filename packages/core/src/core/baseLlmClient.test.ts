@@ -111,7 +111,7 @@ describe('BaseLlmClient', () => {
       getSessionId: vi.fn().mockReturnValue('test-session-id'),
       getContentGeneratorConfig: vi
         .fn()
-        .mockReturnValue({ authType: AuthType.USE_GEMINI }),
+        .mockReturnValue({ authType: AuthType.AFOT_AUTH }),
       getEmbeddingModel: vi.fn().mockReturnValue('test-embedding-model'),
       isInteractive: vi.fn().mockReturnValue(false),
       modelConfigService: {

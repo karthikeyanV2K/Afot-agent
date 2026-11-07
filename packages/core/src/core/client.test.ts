@@ -204,7 +204,7 @@ describe('Gemini Client (client.ts)', () => {
     const contentGeneratorConfig: ContentGeneratorConfig = {
       apiKey: 'test-key',
       vertexai: false,
-      authType: AuthType.USE_GEMINI,
+      authType: AuthType.AFOT_AUTH,
     };
     mockConfig = {
       getRequestTimeoutMs: vi.fn().mockReturnValue(undefined),

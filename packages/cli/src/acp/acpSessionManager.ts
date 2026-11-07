@@ -80,7 +80,7 @@ export class AcpSessionManager {
       loadedSettings.merged.security.auth.selectedType ||
       (authDetails.baseUrl || process.env['GOOGLE_GEMINI_BASE_URL']
         ? AuthType.GATEWAY
-        : AuthType.USE_GEMINI);
+        : AuthType.AFOT_AUTH);
 
     let isAuthenticated = false;
     let authErrorMessage = '';
@@ -96,7 +96,7 @@ export class AcpSessionManager {
       // Extra validation for Gemini API key
       const contentGeneratorConfig = config.getContentGeneratorConfig();
       if (
-        authType === AuthType.USE_GEMINI &&
+        authType === AuthType.AFOT_AUTH &&
         (!contentGeneratorConfig || !contentGeneratorConfig.apiKey)
       ) {
         isAuthenticated = false;

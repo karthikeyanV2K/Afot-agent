@@ -140,6 +140,13 @@ class ReadFileToolInvocation extends BaseToolInvocation<
       targetPathToRead = path.resolve(targetDir, sanitizedPath);
     }
 
+    // AFOT path guard — ask user if path is outside session root
+    await this.checkPathPermission(
+      targetPathToRead,
+      'read',
+      _options.abortSignal,
+    );
+
     const validationError = this.config.validatePathAccess(
       targetPathToRead,
       'read',

@@ -236,7 +236,7 @@ describe('validateNonInterActiveAuth', () => {
     process.env['GEMINI_API_KEY'] = 'fake-key';
     const nonInteractiveConfig = createLocalMockConfig({});
     await validateNonInteractiveAuth(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
       undefined,
       nonInteractiveConfig,
       mockSettings,
@@ -256,7 +256,7 @@ describe('validateNonInterActiveAuth', () => {
     });
     try {
       await validateNonInteractiveAuth(
-        AuthType.USE_GEMINI,
+        AuthType.AFOT_AUTH,
         undefined,
         nonInteractiveConfig,
         mockSettings,
@@ -295,7 +295,7 @@ describe('validateNonInterActiveAuth', () => {
   });
 
   it('succeeds if effectiveAuthType matches enforcedType', async () => {
-    mockSettings.merged.security.auth.enforcedType = AuthType.USE_GEMINI;
+    mockSettings.merged.security.auth.enforcedType = AuthType.AFOT_AUTH;
     process.env['GEMINI_API_KEY'] = 'fake-key';
     const nonInteractiveConfig = createLocalMockConfig({});
     await validateNonInteractiveAuth(
@@ -309,13 +309,13 @@ describe('validateNonInterActiveAuth', () => {
   });
 
   it('exits if configuredAuthType does not match enforcedType', async () => {
-    mockSettings.merged.security.auth.enforcedType = AuthType.LOGIN_WITH_GOOGLE;
+    mockSettings.merged.security.auth.enforcedType = AuthType.AFOT_AUTH;
     const nonInteractiveConfig = createLocalMockConfig({
       getOutputFormat: vi.fn().mockReturnValue(OutputFormat.TEXT),
     });
     try {
       await validateNonInteractiveAuth(
-        AuthType.USE_GEMINI,
+        AuthType.AFOT_AUTH,
         undefined,
         nonInteractiveConfig,
         mockSettings,
@@ -335,7 +335,7 @@ describe('validateNonInterActiveAuth', () => {
   });
 
   it('exits if auth from env var does not match enforcedType', async () => {
-    mockSettings.merged.security.auth.enforcedType = AuthType.LOGIN_WITH_GOOGLE;
+    mockSettings.merged.security.auth.enforcedType = AuthType.AFOT_AUTH;
     process.env['GEMINI_API_KEY'] = 'fake-key';
     const nonInteractiveConfig = createLocalMockConfig({
       getOutputFormat: vi.fn().mockReturnValue(OutputFormat.TEXT),
@@ -396,7 +396,7 @@ describe('validateNonInterActiveAuth', () => {
     });
 
     it(`prints JSON error when enforced auth mismatches current auth and exits with code ${ExitCodes.FATAL_AUTHENTICATION_ERROR}`, async () => {
-      mockSettings.merged.security.auth.enforcedType = AuthType.USE_GEMINI;
+      mockSettings.merged.security.auth.enforcedType = AuthType.AFOT_AUTH;
       const nonInteractiveConfig = createLocalMockConfig({
         getOutputFormat: vi.fn().mockReturnValue(OutputFormat.JSON),
         getContentGeneratorConfig: vi
@@ -407,7 +407,7 @@ describe('validateNonInterActiveAuth', () => {
       let thrown: Error | undefined;
       try {
         await validateNonInteractiveAuth(
-          AuthType.LOGIN_WITH_GOOGLE,
+          AuthType.AFOT_AUTH,
           undefined,
           nonInteractiveConfig,
           mockSettings,
@@ -445,7 +445,7 @@ describe('validateNonInterActiveAuth', () => {
       let thrown: Error | undefined;
       try {
         await validateNonInteractiveAuth(
-          AuthType.USE_GEMINI,
+          AuthType.AFOT_AUTH,
           undefined,
           nonInteractiveConfig,
           mockSettings,

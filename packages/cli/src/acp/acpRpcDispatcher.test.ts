@@ -107,7 +107,7 @@ describe('GeminiAgent - RPC Dispatcher', () => {
     (loadSettings as unknown as Mock).mockImplementation(() => ({
       merged: {
         security: {
-          auth: { selectedType: AuthType.LOGIN_WITH_GOOGLE },
+          auth: { selectedType: AuthType.AFOT_AUTH },
           enablePermanentToolApproval: true,
         },
         mcpServers: {},
@@ -136,7 +136,7 @@ describe('GeminiAgent - RPC Dispatcher', () => {
       },
     });
     const geminiAuth = response.authMethods?.find(
-      (m) => m.id === AuthType.USE_GEMINI,
+      (m) => m.id === AuthType.AFOT_AUTH,
     );
     expect(geminiAuth?._meta).toEqual({
       'api-key': {
@@ -148,11 +148,11 @@ describe('GeminiAgent - RPC Dispatcher', () => {
 
   it('should authenticate correctly', async () => {
     await agent.authenticate({
-      methodId: AuthType.LOGIN_WITH_GOOGLE,
+      methodId: AuthType.AFOT_AUTH,
     });
 
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
       undefined,
       undefined,
       undefined,
@@ -160,20 +160,20 @@ describe('GeminiAgent - RPC Dispatcher', () => {
     expect(mockSettings.setValue).toHaveBeenCalledWith(
       SettingScope.User,
       'security.auth.selectedType',
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
   });
 
   it('should authenticate correctly with api-key in _meta', async () => {
     await agent.authenticate({
-      methodId: AuthType.USE_GEMINI,
+      methodId: AuthType.AFOT_AUTH,
       _meta: {
         'api-key': 'test-api-key',
       },
     } as unknown as acp.AuthenticateRequest);
 
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.USE_GEMINI,
+      AuthType.AFOT_AUTH,
       'test-api-key',
       undefined,
       undefined,
@@ -181,7 +181,7 @@ describe('GeminiAgent - RPC Dispatcher', () => {
     expect(mockSettings.setValue).toHaveBeenCalledWith(
       SettingScope.User,
       'security.auth.selectedType',
-      AuthType.USE_GEMINI,
+      AuthType.AFOT_AUTH,
     );
   });
 

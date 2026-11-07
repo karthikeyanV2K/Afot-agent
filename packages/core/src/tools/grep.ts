@@ -180,6 +180,9 @@ class GrepToolInvocation extends BaseToolInvocation<
           };
         }
 
+        // AFOT path guard
+        await this.checkPathPermission(searchDirAbs, 'read', signal);
+
         try {
           const stats = await fsPromises.stat(searchDirAbs);
           if (!stats.isDirectory()) {

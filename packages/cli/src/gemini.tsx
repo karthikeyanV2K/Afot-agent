@@ -38,6 +38,10 @@ import {
   getProjectHash,
   loadConversationRecord,
   type MessageRecord,
+  initPathGuard,
+  ensureAfotDir,
+  loadAfotPlugins,
+  resolveAfotProvider,
 } from '@google/gemini-cli-core';
 
 import { loadCliConfig, parseArguments } from './config/config.js';
@@ -596,7 +600,23 @@ export async function main() {
     validateDnsResolutionOrder(settings.merged.advanced.dnsResolutionOrder),
   );
 
-  // Set a default auth type if one isn't set or is set to a legacy type
+  // ── AFOT: Initialize path guard and ensure ~/.afot/ exists ──
+  ensureAfotDir();
+  initPathGuard();
+  await loadAfotPlugins(sessionId);
+
+  // ── AFOT: Auto-select default model from provider config ──
+  if (!argv.model) {
+    const afotProvider = resolveAfotProvider();
+    if (afotProvider?.defaultModel) {
+      argv.model = afotProvider.defaultModel;
+      debugLogger.log(
+        `AFOT: auto-selected model "${afotProvider.defaultModel}" from provider "${afotProvider.name}"`,
+      );
+    }
+  }
+
+  // Migrate legacy LEGACY_CLOUD_SHELL setting to COMPUTE_ADC
   if (
     !settings.merged.security.auth.selectedType ||
     settings.merged.security.auth.selectedType === AuthType.LEGACY_CLOUD_SHELL
@@ -881,7 +901,7 @@ export async function main() {
 
     if (
       settings.merged.security.auth.selectedType ===
-        AuthType.LOGIN_WITH_GOOGLE &&
+        AuthType.AFOT_AUTH &&
       config.isBrowserLaunchSuppressed()
     ) {
       // Do oauth before app renders to make copying the link possible.

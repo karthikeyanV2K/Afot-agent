@@ -369,6 +369,9 @@ class WriteFileToolInvocation extends BaseToolInvocation<
   async execute({
     abortSignal: abortSignal,
   }: ExecuteOptions): Promise<ToolResult> {
+    // AFOT path guard — ask user if path is outside session root
+    await this.checkPathPermission(this.resolvedPath, 'write', abortSignal);
+
     const validationError = this.config.validatePathAccess(this.resolvedPath);
     if (validationError) {
       return {

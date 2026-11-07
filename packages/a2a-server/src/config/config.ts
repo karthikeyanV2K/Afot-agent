@@ -685,37 +685,33 @@ async function refreshAuthentication(
           ? 'headless mode'
           : 'GEMINI_CLI_USE_COMPUTE_ADC=true';
         throw new FatalAuthenticationError(
-          `COMPUTE_ADC failed: ${adcMessage}. (LOGIN_WITH_GOOGLE fallback skipped due to ${reason}. Run in an interactive terminal to use OAuth.)`,
+          `COMPUTE_ADC failed: ${adcMessage}. (Fallback skipped due to ${reason}. Configure AFOT_PROVIDER or GOOGLE_GEMINI_BASE_URL instead.)`,
         );
       }
 
-      logger.info(
-        `[${logPrefix}] COMPUTE_ADC failed, falling back to LOGIN_WITH_GOOGLE.`,
+      // No OAuth fallback — fall through to AFOT_AUTH or GATEWAY below
+      logger.warn(
+        `[${logPrefix}] COMPUTE_ADC failed. Falling back to AFOT_AUTH if configured.`,
       );
-      try {
-        await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
-      } catch (e) {
-        if (e instanceof FatalAuthenticationError) {
-          const originalMessage = e instanceof Error ? e.message : String(e);
-          throw new FatalAuthenticationError(
-            `${originalMessage}. The initial COMPUTE_ADC attempt also failed: ${adcMessage}`,
-          );
-        }
-        throw e;
-      }
     }
 
     logger.info(
       `[${logPrefix}] GOOGLE_CLOUD_PROJECT: ${getEnvLocal('GOOGLE_CLOUD_PROJECT')}`,
     );
-  } else if (getEnvLocal('GEMINI_API_KEY')) {
-    logger.info(`[${logPrefix}] Using Gemini API Key`);
+  } else if (getEnvLocal('AFOT_PROVIDER') || getEnvLocal('AFOT_AUTH') === 'true') {
+    logger.info(`[${logPrefix}] Using AFOT Auth`);
+    await config.refreshAuth(AuthType.AFOT_AUTH);
+  } else if (getEnvLocal('GOOGLE_GEMINI_BASE_URL')) {
+    logger.info(`[${logPrefix}] Using Gateway`);
     await config.refreshAuth(
-      AuthType.USE_GEMINI,
+      AuthType.GATEWAY,
       getEnvLocal('GEMINI_API_KEY'),
+      getEnvLocal('GOOGLE_GEMINI_BASE_URL'),
     );
   } else {
-    const errorMessage = `[${logPrefix}] Unable to set GeneratorConfig. Please provide a GEMINI_API_KEY or set USE_CCPA.`;
+    const errorMessage =
+      `[${logPrefix}] Unable to set GeneratorConfig. ` +
+      `Please configure AFOT_PROVIDER (with ~/.afot/auth.json) or set GOOGLE_GEMINI_BASE_URL for gateway mode.`;
     logger.error(errorMessage);
     throw new Error(errorMessage);
   }

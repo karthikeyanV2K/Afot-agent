@@ -46,24 +46,14 @@ export class GeminiAgent {
 
     const authMethods = [
       {
-        id: AuthType.LOGIN_WITH_GOOGLE,
-        name: 'Log in with Google',
-        description: 'Log in with your Google account',
-      },
-      {
-        id: AuthType.USE_GEMINI,
-        name: 'Gemini API key',
-        description: 'Use an API key with Gemini Developer API',
+        id: AuthType.AFOT_AUTH,
+        name: 'AFOT Auth',
+        description: 'Use provider credentials from ~/.afot/auth.json',
         _meta: {
           'api-key': {
-            provider: 'google',
+            provider: 'afot',
           },
         },
-      },
-      {
-        id: AuthType.USE_VERTEX_AI,
-        name: 'Vertex AI',
-        description: 'Use an API key with Vertex AI GenAI API',
       },
       {
         id: AuthType.GATEWAY,

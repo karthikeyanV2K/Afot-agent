@@ -241,7 +241,7 @@ function determineGHCustomTrackingId(): string | undefined {
 /**
  * Clearcut URL to send logging events to.
  */
-const CLEARCUT_URL = 'https://play.googleapis.com/log?format=json&hasfast=true';
+// AFOT: CLEARCUT_URL removed � data never sent to play.googleapis.com
 
 /**
  * Interval in which buffered events are sent to clearcut.
@@ -292,7 +292,8 @@ async function getGpuInfo(): Promise<string> {
 // Singleton class for batch posting log events to Clearcut. When a new event comes in, the elapsed time
 // is checked and events are flushed to Clearcut if at least a minute has passed since the last flush.
 export class ClearcutLogger {
-  private static instance: ClearcutLogger;
+  // AFOT: singleton disabled
+// AFOT: _instance removed (singleton disabled)
   private config?: Config;
   private sessionData: EventValue[] = [];
   private promptId: string = '';
@@ -315,12 +316,12 @@ export class ClearcutLogger {
    * the value is true when there is a pending flush happening. This prevents
    * concurrent flush operations.
    */
-  private flushing: boolean = false;
+  // AFOT: _flushing removed
 
   /**
    * This value is true when a flush was requested during an ongoing flush.
    */
-  private pendingFlush: boolean = false;
+  // AFOT: _pendingFlush removed
 
   private constructor(config: Config) {
     this.config = config;
@@ -338,12 +339,9 @@ export class ClearcutLogger {
   }
 
   static getInstance(config?: Config): ClearcutLogger | undefined {
-    if (config === undefined || !config?.getUsageStatisticsEnabled())
-      return undefined;
-    if (!ClearcutLogger.instance) {
-      ClearcutLogger.instance = new ClearcutLogger(config);
-    }
-    return ClearcutLogger.instance;
+    // AFOT: Clearcut telemetry disabled — never returns an instance
+    void config;
+    return undefined;
   }
 
   /** For testing purposes only. */
@@ -525,86 +523,8 @@ export class ClearcutLogger {
   }
 
   async flushToClearcut(): Promise<LogResponse> {
-    if (this.flushing) {
-      if (this.config?.getDebugMode()) {
-        debugLogger.debug(
-          'ClearcutLogger: Flush already in progress, marking pending flush.',
-        );
-      }
-      this.pendingFlush = true;
-      return Promise.resolve({});
-    }
-    this.flushing = true;
-
-    if (this.config?.getDebugMode()) {
-      debugLogger.log('Flushing log events to Clearcut.');
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const eventsToSend = this.events.toArray() as LogEventEntry[][];
-    this.events.clear();
-
-    const request: LogRequest[] = [
-      {
-        log_source_name: 'CONCORD',
-        request_time_ms: Date.now(),
-        log_event: eventsToSend,
-      },
-    ];
-
-    let result: LogResponse = {};
-
-    try {
-      const response = await fetch(CLEARCUT_URL, {
-        method: 'POST',
-        body: safeJsonStringify(request),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const responseBody = await response.text();
-
-      if (response.status >= 200 && response.status < 300) {
-        this.lastFlushTime = Date.now();
-        const nextRequestWaitMs = Number(JSON.parse(responseBody)[0]);
-        result = {
-          ...result,
-          nextRequestWaitMs,
-        };
-      } else {
-        if (this.config?.getDebugMode()) {
-          debugLogger.warn(
-            `Error flushing log events: HTTP ${response.status}: ${response.statusText}`,
-          );
-        }
-
-        // Re-queue failed events for retry
-        this.requeueFailedEvents(eventsToSend);
-      }
-    } catch (e: unknown) {
-      if (this.config?.getDebugMode()) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        debugLogger.warn('Error flushing log events:', e as Error);
-      }
-
-      // Re-queue failed events for retry
-      this.requeueFailedEvents(eventsToSend);
-    }
-
-    this.flushing = false;
-
-    // If a flush was requested while we were flushing, flush again
-    if (this.pendingFlush) {
-      this.pendingFlush = false;
-      // Fire and forget the pending flush
-      this.flushToClearcut().catch((error) => {
-        if (this.config?.getDebugMode()) {
-          debugLogger.debug('Error in pending flush to Clearcut:', error);
-        }
-      });
-    }
-
-    return result;
+    // AFOT: Clearcut sending disabled — no data sent to https://play.googleapis.com
+    return Promise.resolve({});
   }
 
   async logStartSessionEvent(event: StartSessionEvent): Promise<void> {
@@ -2153,54 +2073,9 @@ export class ClearcutLogger {
     this.logEndSessionEvent();
   }
 
-  private requeueFailedEvents(eventsToSend: LogEventEntry[][]): void {
-    // Add the events back to the front of the queue to be retried, but limit retry queue size
-    const eventsToRetry = eventsToSend.slice(-MAX_RETRY_EVENTS); // Keep only the most recent events
-
-    // Log a warning if we're dropping events
-    if (eventsToSend.length > MAX_RETRY_EVENTS && this.config?.getDebugMode()) {
-      debugLogger.warn(
-        `ClearcutLogger: Dropping ${
-          eventsToSend.length - MAX_RETRY_EVENTS
-        } events due to retry queue limit. Total events: ${
-          eventsToSend.length
-        }, keeping: ${MAX_RETRY_EVENTS}`,
-      );
-    }
-
-    // Determine how many events can be re-queued
-    const availableSpace = MAX_EVENTS - this.events.size;
-    const numEventsToRequeue = Math.min(eventsToRetry.length, availableSpace);
-
-    if (numEventsToRequeue === 0) {
-      if (this.config?.getDebugMode()) {
-        debugLogger.debug(
-          `ClearcutLogger: No events re-queued (queue size: ${this.events.size})`,
-        );
-      }
-      return;
-    }
-
-    // Get the most recent events to re-queue
-    const eventsToRequeue = eventsToRetry.slice(
-      eventsToRetry.length - numEventsToRequeue,
-    );
-
-    // Prepend events to the front of the deque to be retried first.
-    // We iterate backwards to maintain the original order of the failed events.
-    for (let i = eventsToRequeue.length - 1; i >= 0; i--) {
-      this.events.unshift(eventsToRequeue[i]);
-    }
-    // Clear any potential overflow
-    while (this.events.size > MAX_EVENTS) {
-      this.events.pop();
-    }
-
-    if (this.config?.getDebugMode()) {
-      debugLogger.debug(
-        `ClearcutLogger: Re-queued ${numEventsToRequeue} events for retry (queue size: ${this.events.size})`,
-      );
-    }
+  // AFOT: _requeueFailedEvents stubbed — no retry needed since flush is disabled
+  protected _requeueFailedEvents(_eventsToSend: LogEventEntry[][]): void {
+    // no-op: Clearcut sending is disabled
   }
 }
 

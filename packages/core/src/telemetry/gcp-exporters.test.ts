@@ -47,7 +47,7 @@ vi.mock('@google-cloud/logging', () => ({
 describe('GCP Exporters', () => {
   describe('GcpTraceExporter', () => {
     it('should create a trace exporter with correct configuration', () => {
-      const exporter = new GcpTraceExporter('test-project');
+      const exporter = new GcpTraceExporter();
       expect(exporter).toBeDefined();
     });
 
@@ -59,7 +59,7 @@ describe('GCP Exporters', () => {
 
   describe('GcpMetricExporter', () => {
     it('should create a metric exporter with correct configuration', () => {
-      const exporter = new GcpMetricExporter('test-project');
+      const exporter = new GcpMetricExporter();
       expect(exporter).toBeDefined();
     });
 
@@ -76,7 +76,7 @@ describe('GCP Exporters', () => {
       vi.clearAllMocks();
       mockLogWrite.mockResolvedValue(undefined);
       mockLog.entry.mockReturnValue(mockLogEntry);
-      exporter = new GcpLogExporter('test-project');
+      exporter = new GcpLogExporter();
     });
 
     describe('constructor', () => {

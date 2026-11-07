@@ -221,9 +221,7 @@ function enrichQuotaError(error: Error, authType?: string): Error {
 
   if (
     isQuotaError &&
-    (authType === 'oauth-personal' ||
-      authType === 'compute-default-credentials' ||
-      authType === 'LOGIN_WITH_GOOGLE' ||
+    (authType === 'compute-default-credentials' ||
       authType === 'COMPUTE_ADC')
   ) {
     const hasUserProject = !!(

@@ -635,6 +635,9 @@ export class ShellToolInvocation extends BaseToolInvocation<
     } = options;
     const strippedCommand = stripShellWrapper(this.params.command);
 
+    // AFOT path guard — check the shell's working directory
+    await this.checkPathPermission(process.cwd(), 'execute', signal);
+
     if (
       detectCommandSubstitution(strippedCommand) &&
       !(await this.isCommandSubstitutionAllowed(options))

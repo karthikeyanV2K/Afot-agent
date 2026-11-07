@@ -13,6 +13,7 @@
  */
 export enum ToolErrorType {
   POLICY_VIOLATION = 'policy_violation',
+  USER_DENIED = 'user_denied',
   /**
    * General tool execution failure (e.g. file system error, API error).
    */

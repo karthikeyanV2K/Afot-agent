@@ -693,7 +693,7 @@ describe('<Footer />', () => {
       const authConfig = {
         ...mockConfigPlain,
         getContentGeneratorConfig: () => ({
-          authType: AuthType.LOGIN_WITH_GOOGLE,
+          authType: AuthType.AFOT_AUTH,
         }),
       } as unknown as Config;
       const getCachedAccountSpy = vi
@@ -726,7 +726,7 @@ describe('<Footer />', () => {
       const authConfig = {
         ...mockConfigPlain,
         getContentGeneratorConfig: () => ({
-          authType: AuthType.LOGIN_WITH_GOOGLE,
+          authType: AuthType.AFOT_AUTH,
         }),
       } as unknown as Config;
       const getCachedAccountSpy = vi

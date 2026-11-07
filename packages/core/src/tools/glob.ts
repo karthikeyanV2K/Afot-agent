@@ -173,6 +173,8 @@ class GlobToolInvocation extends BaseToolInvocation<
             },
           };
         }
+        // AFOT path guard
+        await this.checkPathPermission(searchDirAbsolute, 'read', signal);
         searchDirectories = [searchDirAbsolute];
       } else {
         // Search across all workspace directories

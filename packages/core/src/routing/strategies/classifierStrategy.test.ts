@@ -66,10 +66,10 @@ describe('ClassifierStrategy', () => {
       getUseCustomToolModel: vi.fn().mockImplementation(async () => {
         const launched = await mockConfig.getGemini31Launched();
         const authType = mockConfig.getContentGeneratorConfig().authType;
-        return launched && authType === AuthType.USE_GEMINI;
+        return launched && authType === AuthType.AFOT_AUTH;
       }),
       getContentGeneratorConfig: vi.fn().mockReturnValue({
-        authType: AuthType.LOGIN_WITH_GOOGLE,
+        authType: AuthType.AFOT_AUTH,
       }),
       getModelAvailabilityService: vi
         .fn()
@@ -508,7 +508,7 @@ describe('ClassifierStrategy', () => {
       vi.mocked(mockConfig.getGemini31Launched).mockResolvedValue(true);
       vi.mocked(mockConfig.getModel).mockReturnValue(PREVIEW_GEMINI_MODEL_AUTO);
       vi.mocked(mockConfig.getContentGeneratorConfig).mockReturnValue({
-        authType: AuthType.USE_GEMINI,
+        authType: AuthType.AFOT_AUTH,
       });
       const mockApiResponse = {
         reasoning: 'Complex task',

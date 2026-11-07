@@ -95,12 +95,12 @@ describe('Retry Utility Fallback Integration', () => {
       initialDelayMs: 1,
       maxDelayMs: 10,
       onPersistent429: mockPersistent429Callback,
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     expect(fallbackCalled).toBe(true);
     expect(mockPersistent429Callback).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
       expect.any(TerminalQuotaError),
     );
     expect(result).toBe('success after fallback');
@@ -125,14 +125,14 @@ describe('Retry Utility Fallback Integration', () => {
       initialDelayMs: 1,
       maxDelayMs: 10,
       onPersistent429: mockPersistent429Callback,
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     await expect(promise).rejects.toThrow('Capacity exhausted');
     expect(mockApiCall).toHaveBeenCalledTimes(1); // Only called once because it's terminal and fallback returned null
     expect(mockPersistent429Callback).toHaveBeenCalledTimes(1);
     expect(mockPersistent429Callback).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
       expect.any(TerminalQuotaError),
     );
   });
@@ -157,7 +157,7 @@ describe('Retry Utility Fallback Integration', () => {
       initialDelayMs: 1,
       maxDelayMs: 10,
       onPersistent429: mockPersistent429Callback,
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     await expect(promise).rejects.toThrow('Simulated 499 error');
@@ -179,7 +179,7 @@ describe('Retry Utility Fallback Integration', () => {
       initialDelayMs: 1,
       maxDelayMs: 10,
       onPersistent429: fallbackCallback,
-      authType: AuthType.USE_GEMINI, // API key auth type
+      authType: AuthType.AFOT_AUTH, // API key auth type
     });
 
     await expect(promise).rejects.toThrow('Daily limit');

@@ -48,6 +48,7 @@ import {
   type HookEventName,
   type OutputFormat,
   detectIdeFromEnv,
+  AuthType,
 } from '@google/gemini-cli-core';
 import {
   type Settings,
@@ -1133,6 +1134,9 @@ export async function loadCliConfig(
       };
     },
     enableConseca: settings.security?.enableConseca,
+    // Disable model router for AFOT_AUTH — third-party providers don't support
+    // the classifier model calls that the NumericalClassifierStrategy makes
+    disableModelRouterForAuth: [AuthType.AFOT_AUTH],
   });
 }
 

@@ -31,6 +31,7 @@ import {
   BatchLogRecordProcessor,
   ConsoleLogRecordExporter,
 } from '@opentelemetry/sdk-logs';
+import type { PushMetricExporter } from '@opentelemetry/sdk-metrics';
 import {
   ConsoleMetricExporter,
   PeriodicExportingMetricReader,
@@ -273,10 +274,10 @@ export async function initializeTelemetry(
       'using',
       credentials ? 'provided credentials' : 'ADC',
     );
-    spanExporter = new GcpTraceExporter(gcpProjectId, credentials);
-    logExporter = new GcpLogExporter(gcpProjectId, credentials);
+    spanExporter = new GcpTraceExporter();
+    logExporter = new GcpLogExporter();
     metricReader = new PeriodicExportingMetricReader({
-      exporter: new GcpMetricExporter(gcpProjectId, credentials),
+      exporter: new GcpMetricExporter() as unknown as PushMetricExporter,
       exportIntervalMillis: 30000,
     });
   } else if (useOtlp) {

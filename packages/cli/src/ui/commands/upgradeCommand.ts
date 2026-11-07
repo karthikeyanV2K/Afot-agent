@@ -25,7 +25,7 @@ export const upgradeCommand: SlashCommand = {
   action: async (context) => {
     const config = context.services.agentContext?.config;
     const authType = config?.getContentGeneratorConfig()?.authType;
-    if (authType !== AuthType.LOGIN_WITH_GOOGLE) {
+    if (authType !== AuthType.AFOT_AUTH) {
       // This command should ideally be hidden if not logged in with Google,
       // but we add a safety check here just in case.
       return {

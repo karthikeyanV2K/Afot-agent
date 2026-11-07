@@ -66,6 +66,12 @@ export * from './code_assist/telemetry.js';
 export * from './code_assist/admin/admin_controls.js';
 export * from './code_assist/admin/mcpUtils.js';
 export * from './core/apiKeyCredentialStorage.js';
+export * from './core/afotAuthStorage.js';
+export * from './core/afotPathGuard.js';
+export * from './core/afotPluginLoader.js';
+export * from './core/afotWebSearch.js';
+export * from './core/afotOpenAIContentGenerator.js';
+export * from './core/opencodeConsoleAuth.js';
 
 // Export utilities
 export * from './utils/fetch.js';

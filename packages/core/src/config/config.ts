@@ -816,7 +816,7 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly logRagSnippets: boolean;
   private readonly accessibility: AccessibilitySettings;
   private readonly telemetrySettings: TelemetrySettings;
-  private readonly usageStatisticsEnabled: boolean;
+  // AFOT: usageStatisticsEnabled removed — always false, see getUsageStatisticsEnabled()
   geminiClient!: GeminiClient;
   sandboxManager: SandboxManager;
   private readonly _sandboxPolicyManager: SandboxPolicyManager;
@@ -931,6 +931,7 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly outputSettings: OutputSettings;
 
   private readonly gemmaModelRouter: GemmaModelRouterSettings;
+  private readonly disableModelRouterForAuth: AuthType[];
   private readonly agentSessionNoninteractiveEnabled: boolean;
   private readonly agentSessionInteractiveEnabled: boolean;
   private readonly agentSessionSubagentEnabled: boolean;
@@ -1107,7 +1108,7 @@ export class Config implements McpContext, AgentLoopContext {
       useCollector: params.telemetry?.useCollector,
       useCliAuth: params.telemetry?.useCliAuth,
     };
-    this.usageStatisticsEnabled = params.usageStatisticsEnabled ?? true;
+    // AFOT: usageStatisticsEnabled always false — see getUsageStatisticsEnabled()
 
     this.fileFiltering = {
       respectGitIgnore:
@@ -1381,6 +1382,7 @@ export class Config implements McpContext, AgentLoopContext {
           params.gemmaModelRouter?.classifier?.model ?? 'gemma3-1b-gpu-custom',
       },
     };
+    this.disableModelRouterForAuth = params.disableModelRouterForAuth ?? [];
 
     this.agentSessionNoninteractiveEnabled =
       params.adk?.agentSessionNoninteractiveEnabled ?? false;
@@ -1591,8 +1593,8 @@ export class Config implements McpContext, AgentLoopContext {
     // Vertex and Genai have incompatible encryption and sending history with
     // thoughtSignature from Genai to Vertex will fail, we need to strip them
     if (
-      this.contentGeneratorConfig?.authType === AuthType.USE_GEMINI &&
-      authMethod !== AuthType.USE_GEMINI
+      this.contentGeneratorConfig?.authType === AuthType.AFOT_AUTH &&
+      authMethod !== AuthType.AFOT_AUTH
     ) {
       // Restore the conversation history to the new client
       this.geminiClient.stripThoughtsFromHistory();
@@ -1655,8 +1657,8 @@ export class Config implements McpContext, AgentLoopContext {
 
     const authType = this.contentGeneratorConfig.authType;
     if (
-      authType === AuthType.USE_GEMINI ||
-      authType === AuthType.USE_VERTEX_AI
+      authType === AuthType.AFOT_AUTH ||
+      authType === AuthType.GATEWAY
     ) {
       this.setHasAccessToPreviewModel(true);
     }
@@ -2912,15 +2914,15 @@ export class Config implements McpContext, AgentLoopContext {
   }
 
   getTelemetryEnabled(): boolean {
-    return this.telemetrySettings.enabled ?? false;
+    return false; // AFOT: telemetry disabled
   }
 
   getTelemetryTracesEnabled(): boolean {
-    return this.telemetrySettings.traces ?? false;
+    return false; // AFOT: telemetry disabled
   }
 
   getTelemetryLogPromptsEnabled(): boolean {
-    return this.telemetrySettings.logPrompts ?? true;
+    return false; // AFOT: telemetry disabled
   }
 
   getTelemetryOtlpEndpoint(): string {
@@ -3075,7 +3077,7 @@ export class Config implements McpContext, AgentLoopContext {
   }
 
   getUsageStatisticsEnabled(): boolean {
-    return this.usageStatisticsEnabled;
+    return false; // AFOT: usage statistics disabled — no data sent to Google
   }
 
   getAcpMode(): boolean {
@@ -3487,6 +3489,17 @@ export class Config implements McpContext, AgentLoopContext {
   async getNumericalRoutingEnabled(): Promise<boolean> {
     await this.ensureExperimentsLoaded();
 
+    // Disable for AFOT_AUTH — third-party providers don't support the
+    // classifier sub-calls that NumericalClassifierStrategy makes internally.
+    const disabledForAuthTypes = this.disableModelRouterForAuth ?? [];
+    const currentAuthType = this.contentGeneratorConfig?.authType;
+    if (
+      currentAuthType &&
+      disabledForAuthTypes.includes(currentAuthType)
+    ) {
+      return false;
+    }
+
     const flag =
       this.experiments?.flags[ExperimentFlags.ENABLE_NUMERICAL_ROUTING];
     return flag?.boolValue ?? true;
@@ -3555,7 +3568,6 @@ export class Config implements McpContext, AgentLoopContext {
    */
   getProModelNoAccessSync(): boolean {
     if (
-      this.contentGeneratorConfig?.authType !== AuthType.LOGIN_WITH_GOOGLE &&
       this.contentGeneratorConfig?.authType !== AuthType.COMPUTE_ADC
     ) {
       return false;
@@ -3581,24 +3593,18 @@ export class Config implements McpContext, AgentLoopContext {
   async getUseCustomToolModel(): Promise<boolean> {
     const useGemini3_1 = await this.getGemini31Launched();
     const authType = this.contentGeneratorConfig?.authType;
-    return useGemini3_1 && authType === AuthType.USE_GEMINI;
+    return useGemini3_1 && (authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY);
   }
 
-  /**
-   * Returns whether the custom tool model should be used.
-   *
-   * Note: This method should only be called after startup, once experiments have been loaded.
-   */
   getUseCustomToolModelSync(): boolean {
     const useGemini3_1 = this.getGemini31LaunchedSync();
     const authType = this.contentGeneratorConfig?.authType;
-    return useGemini3_1 && authType === AuthType.USE_GEMINI;
+    return useGemini3_1 && (authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY);
   }
 
   private isGemini31LaunchedForAuthType(authType?: AuthType): boolean {
     return (
-      authType === AuthType.USE_GEMINI ||
-      authType === AuthType.USE_VERTEX_AI ||
+      authType === AuthType.AFOT_AUTH ||
       authType === AuthType.GATEWAY
     );
   }
@@ -3619,7 +3625,7 @@ export class Config implements McpContext, AgentLoopContext {
     })();
 
     if (hasAccess) {
-      if (authType === AuthType.USE_GEMINI) {
+      if (authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY) {
         setFlashModels('gemini-3-flash-preview', LATEST_GEMINI_FLASH_MODEL);
       } else {
         setFlashModels(LATEST_GEMINI_FLASH_MODEL, LATEST_GEMINI_FLASH_MODEL);

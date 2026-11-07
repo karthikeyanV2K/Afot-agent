@@ -78,7 +78,7 @@ describe('Shared Project Throttling Integration', () => {
       initialDelayMs: 1,
       maxDelayMs: 5,
       onPersistent429: mockPersistent429Callback,
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     await expect(promise).rejects.toThrow(
@@ -104,7 +104,7 @@ describe('Shared Project Throttling Integration', () => {
       maxAttempts: 1,
       initialDelayMs: 1,
       maxDelayMs: 5,
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     let caughtError: Error | undefined;
@@ -136,7 +136,7 @@ describe('Shared Project Throttling Integration', () => {
       maxAttempts: 1,
       initialDelayMs: 1,
       maxDelayMs: 5,
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
     });
 
     const caughtError = await promise.catch((e) => e);
@@ -158,7 +158,7 @@ describe('Shared Project Throttling Integration', () => {
       maxAttempts: 1,
       initialDelayMs: 1,
       maxDelayMs: 5,
-      authType: AuthType.USE_GEMINI, // API Key auth type
+      authType: AuthType.AFOT_AUTH, // API Key auth type
     });
 
     const caughtError = await promise.catch((e) => e);

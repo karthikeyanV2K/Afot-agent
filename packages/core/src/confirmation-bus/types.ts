@@ -26,6 +26,9 @@ export enum MessageBusType {
   ASK_USER_REQUEST = 'ask-user-request',
   ASK_USER_RESPONSE = 'ask-user-response',
   SUBAGENT_ACTIVITY = 'subagent-activity',
+  // AFOT path permission system
+  PATH_PERMISSION_REQUEST = 'path-permission-request',
+  PATH_PERMISSION_RESPONSE = 'path-permission-response',
 }
 
 export interface ToolCallsUpdateMessage {
@@ -221,6 +224,33 @@ export interface SubagentActivityMessage {
   activity: SubagentActivityItem;
 }
 
+// ─── AFOT path permission messages ───────────────────────────────────────────
+
+export type PathPermissionDecision = 'allow_once' | 'allow_always' | 'deny';
+
+/**
+ * Emitted by a tool when it wants to access a path outside the session root.
+ * The UI renders a prompt and responds with a PathPermissionResponse.
+ */
+export interface PathPermissionRequest {
+  type: MessageBusType.PATH_PERMISSION_REQUEST;
+  correlationId: string;
+  /** The path being accessed (absolute, already resolved) */
+  requestedPath: string;
+  /** The parent directory that would be granted (normalized grant target) */
+  grantTarget: string;
+  /** Human-readable tool name requesting access */
+  toolName: string;
+  /** Read or write */
+  operation: 'read' | 'write' | 'execute';
+}
+
+export interface PathPermissionResponse {
+  type: MessageBusType.PATH_PERMISSION_RESPONSE;
+  correlationId: string;
+  decision: PathPermissionDecision;
+}
+
 export type Message =
   | ToolConfirmationRequest
   | ToolConfirmationResponse
@@ -231,4 +261,6 @@ export type Message =
   | AskUserRequest
   | AskUserResponse
   | ToolCallsUpdateMessage
-  | SubagentActivityMessage;
+  | SubagentActivityMessage
+  | PathPermissionRequest
+  | PathPermissionResponse;

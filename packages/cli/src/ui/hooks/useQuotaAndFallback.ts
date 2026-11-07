@@ -168,8 +168,8 @@ export function useQuotaAndFallback({
               : null,
             `/stats model for usage details`,
             `/model to switch models.`,
-            contentGeneratorConfig?.authType === AuthType.LOGIN_WITH_GOOGLE
-              ? `/auth to switch to API key.`
+            contentGeneratorConfig?.authType === AuthType.AFOT_AUTH
+              ? `/auth to switch provider.`
               : null,
           ].filter(Boolean);
           message = messageLines.join('\n');
@@ -177,15 +177,12 @@ export function useQuotaAndFallback({
       } else if (error instanceof ModelNotFoundError) {
         isModelNotFoundError = true;
         if (
-          contentGeneratorConfig?.authType === AuthType.USE_VERTEX_AI &&
+          contentGeneratorConfig?.authType === AuthType.AFOT_AUTH &&
           VALID_GEMINI_MODELS.has(failedModel)
         ) {
-          const location =
-            process.env['GOOGLE_CLOUD_LOCATION'] || 'your configured region';
           const messageLines = [
-            `Model "${failedModel}" is not available in region "${location}".`,
-            `To see which models are available in this region, please visit:`,
-            `https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations`,
+            `Model "${failedModel}" is not available from your current AFOT provider.`,
+            `Check your provider's supported models in ~/.afot/config.json`,
             `/model to switch models.`,
           ];
           message = messageLines.join('\n');

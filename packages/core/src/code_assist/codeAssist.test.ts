@@ -58,13 +58,13 @@ describe('codeAssist', () => {
 
       const generator = await createCodeAssistContentGenerator(
         httpOptions,
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         mockConfig,
         'session-123',
       );
 
       expect(getOauthClient).toHaveBeenCalledWith(
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         mockConfig,
       );
       expect(setupUser).toHaveBeenCalledWith(

@@ -185,7 +185,7 @@ describe('ClearcutLogger', () => {
   const getEventsSize = (l: ClearcutLogger): number => l['events'].size;
 
   const requeueFailedEvents = (l: ClearcutLogger, events: LogEventEntry[][]) =>
-    l['requeueFailedEvents'](events);
+    l['_requeueFailedEvents'](events);
 
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -295,7 +295,7 @@ describe('ClearcutLogger', () => {
     it('logs default metadata', () => {
       // Define expected values
       const session_id = 'my-session-id';
-      const auth_type = AuthType.USE_GEMINI;
+      const auth_type = AuthType.AFOT_AUTH;
       const google_accounts = 123;
       const surface = 'ide-1234';
       const cli_version = CLI_VERSION;

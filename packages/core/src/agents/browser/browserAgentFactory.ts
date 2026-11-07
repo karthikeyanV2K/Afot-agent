@@ -235,7 +235,7 @@ export async function createBrowserAgentDefinition(
       }
       const authType = config.getContentGeneratorConfig()?.authType;
       const blockedAuthTypes = new Set([
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         AuthType.LEGACY_CLOUD_SHELL,
         AuthType.COMPUTE_ADC,
       ]);

@@ -35,7 +35,7 @@ const createMockConfig = (overrides: Partial<Config> = {}): Config => {
     getUseCustomToolModelSync: () => {
       const useGemini31 = config.getGemini31LaunchedSync();
       const authType = config.getContentGeneratorConfig().authType;
-      return useGemini31 && authType === AuthType.USE_GEMINI;
+      return useGemini31 && authType === AuthType.AFOT_AUTH;
     },
     getContentGeneratorConfig: () => ({ authType: undefined }),
     getHasAccessToPreviewModel: () => true,
@@ -176,7 +176,7 @@ describe('policyHelpers', () => {
       const config = createMockConfig({
         getModel: () => 'auto-gemini-3',
         getGemini31LaunchedSync: () => true,
-        getContentGeneratorConfig: () => ({ authType: AuthType.USE_GEMINI }),
+        getContentGeneratorConfig: () => ({ authType: AuthType.AFOT_AUTH }),
       });
       const chain = resolvePolicyChain(config);
       expect(chain[0]?.model).toBe(PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL);
@@ -211,7 +211,7 @@ describe('policyHelpers', () => {
         name: 'Gemini 3 Auto (3.1 + Custom Tools)',
         model: 'auto-gemini-3',
         useGemini31: true,
-        authType: AuthType.USE_GEMINI,
+        authType: AuthType.AFOT_AUTH,
       },
       {
         name: 'Gemini 3 Auto (No Access)',

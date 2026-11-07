@@ -58,7 +58,7 @@ vi.mock('../utils/debugLogger.js', () => ({
 
 const MOCK_PRO_MODEL = DEFAULT_GEMINI_MODEL;
 const FALLBACK_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
-const AUTH_OAUTH = AuthType.LOGIN_WITH_GOOGLE;
+const AUTH_OAUTH = AuthType.AFOT_AUTH;
 
 const createMockConfig = (overrides: Partial<Config> = {}): Config =>
   ({
@@ -435,7 +435,7 @@ describe('handleFallback', () => {
       const result = await handleFallback(
         policyConfig,
         'gemini-3.1-pro-preview-customtools',
-        AuthType.USE_GEMINI,
+        AuthType.AFOT_AUTH,
         capacityError,
       );
 

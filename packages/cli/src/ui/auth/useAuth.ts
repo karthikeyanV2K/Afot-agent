@@ -9,7 +9,6 @@ import type { LoadedSettings } from '../../config/settings.js';
 import {
   AuthType,
   type Config,
-  loadApiKey,
   debugLogger,
   isAccountSuspendedError,
   ProjectIdRequiredError,
@@ -31,10 +30,6 @@ export async function validateAuthMethodWithSettings(
   if (settings.merged.security.auth.useExternal) {
     return null;
   }
-  // If using Gemini API key, we don't validate it here as we might need to prompt for it.
-  if (authType === AuthType.USE_GEMINI) {
-    return null;
-  }
   return validateAuthMethod(authType);
 }
 
@@ -53,9 +48,9 @@ export const useAuthCommand = (
   const [authError, setAuthError] = useState<string | null>(initialAuthError);
   const [accountSuspensionInfo, setAccountSuspensionInfo] =
     useState<AccountSuspensionInfo | null>(initialAccountSuspensionInfo);
-  const [apiKeyDefaultValue, setApiKeyDefaultValue] = useState<
-    string | undefined
-  >(undefined);
+
+  // Kept for API compatibility with consumers that destructure this field
+  const [apiKeyDefaultValue] = useState<string | undefined>(undefined);
 
   const onAuthError = useCallback(
     (error: string | null) => {
@@ -67,24 +62,10 @@ export const useAuthCommand = (
     [setAuthError, setAuthState],
   );
 
+  // No-op kept for API compatibility — AFOT auth doesn't use interactive key entry
   const reloadApiKey = useCallback(async () => {
-    const envKey = process.env['GEMINI_API_KEY'];
-    if (envKey !== undefined) {
-      setApiKeyDefaultValue(envKey);
-      return envKey;
-    }
-
-    const storedKey = (await loadApiKey()) ?? '';
-    setApiKeyDefaultValue(storedKey);
-    return storedKey;
+    return '';
   }, []);
-
-  useEffect(() => {
-    if (authState === AuthState.AwaitingApiKeyInput) {
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      reloadApiKey();
-    }
-  }, [authState, reloadApiKey]);
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -95,22 +76,8 @@ export const useAuthCommand = (
 
       const authType = settings.merged.security.auth.selectedType;
       if (!authType) {
-        if (process.env['GEMINI_API_KEY']) {
-          onAuthError(
-            'Existing API key detected (GEMINI_API_KEY). Select "Gemini API Key" option to use it.',
-          );
-        } else {
-          onAuthError('No authentication method selected.');
-        }
+        onAuthError('No authentication method selected.');
         return;
-      }
-
-      if (authType === AuthType.USE_GEMINI) {
-        const key = await reloadApiKey(); // Use the unified function
-        if (!key) {
-          setAuthState(AuthState.AwaitingApiKeyInput);
-          return;
-        }
       }
 
       const error = await validateAuthMethodWithSettings(
@@ -123,22 +90,8 @@ export const useAuthCommand = (
         return;
       }
 
-      const defaultAuthType = process.env['GEMINI_DEFAULT_AUTH_TYPE'];
-      if (
-        defaultAuthType &&
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        !Object.values(AuthType).includes(defaultAuthType as AuthType)
-      ) {
-        onAuthError(
-          `Invalid value for GEMINI_DEFAULT_AUTH_TYPE: "${defaultAuthType}". ` +
-            `Valid values are: ${Object.values(AuthType).join(', ')}.`,
-        );
-        return;
-      }
-
       try {
         await config.refreshAuth(authType);
-
         debugLogger.log(`Authenticated via "${authType}".`);
         setAuthError(null);
         setAuthState(AuthState.Authenticated);
@@ -159,11 +112,9 @@ export const useAuthCommand = (
             appealLinkText: suspendedError.appealLinkText,
           });
         } else if (e instanceof ProjectIdRequiredError) {
-          // OAuth succeeded but account setup requires project ID
-          // Show the error message directly without "Failed to login" prefix
           onAuthError(getErrorMessage(e));
         } else {
-          onAuthError(`Failed to sign in. Message: ${getErrorMessage(e)}`);
+          onAuthError(`Failed to authenticate. Message: ${getErrorMessage(e)}`);
         }
       }
     })();
@@ -174,7 +125,6 @@ export const useAuthCommand = (
     setAuthState,
     setAuthError,
     onAuthError,
-    reloadApiKey,
   ]);
 
   return {

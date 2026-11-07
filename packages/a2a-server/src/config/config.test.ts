@@ -482,7 +482,7 @@ describe('loadConfig', () => {
 
         expect(refreshAuthMock).toHaveBeenCalledWith(AuthType.COMPUTE_ADC);
         expect(refreshAuthMock).not.toHaveBeenCalledWith(
-          AuthType.LOGIN_WITH_GOOGLE,
+          AuthType.AFOT_AUTH,
         );
       });
 
@@ -500,7 +500,7 @@ describe('loadConfig', () => {
 
         expect(refreshAuthMock).toHaveBeenCalledWith(AuthType.COMPUTE_ADC);
         expect(refreshAuthMock).toHaveBeenCalledWith(
-          AuthType.LOGIN_WITH_GOOGLE,
+          AuthType.AFOT_AUTH,
         );
       });
 
@@ -523,7 +523,7 @@ describe('loadConfig', () => {
 
         expect(refreshAuthMock).toHaveBeenCalledWith(AuthType.COMPUTE_ADC);
         expect(refreshAuthMock).not.toHaveBeenCalledWith(
-          AuthType.LOGIN_WITH_GOOGLE,
+          AuthType.AFOT_AUTH,
         );
       });
 
@@ -534,7 +534,7 @@ describe('loadConfig', () => {
           if (authType === AuthType.COMPUTE_ADC) {
             throw new Error('ADC failed');
           }
-          if (authType === AuthType.LOGIN_WITH_GOOGLE) {
+          if (authType === AuthType.AFOT_AUTH) {
             throw new FatalAuthenticationError('OAuth failed');
           }
           return Promise.resolve();

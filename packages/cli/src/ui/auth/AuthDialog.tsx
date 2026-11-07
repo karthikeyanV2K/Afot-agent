@@ -5,7 +5,7 @@
  */
 
 import type React from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../semantic-colors.js';
 import { RadioButtonSelect } from '../components/shared/RadioButtonSelect.js';
@@ -16,14 +16,14 @@ import {
 } from '../../config/settings.js';
 import {
   AuthType,
-  clearCachedCredentialFile,
   type Config,
-  debugLogger,
+  listAfotProviders,
+  resolveAfotProvider,
 } from '@google/gemini-cli-core';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { AuthState } from '../types.js';
 import { validateAuthMethodWithSettings } from './useAuth.js';
-import { relaunchApp } from '../../utils/processUtils.js';
+import { ProviderConnectDialog } from './ProviderConnectDialog.js';
 
 interface AuthDialogProps {
   config: Config;
@@ -35,176 +35,93 @@ interface AuthDialogProps {
 }
 
 export function AuthDialog({
-  config,
+  config: _config,
   settings,
   setAuthState,
   authError,
   onAuthError,
   setAuthContext,
 }: AuthDialogProps): React.JSX.Element {
-  const [exiting, setExiting] = useState(false);
-  let items = [
-    {
-      label: 'Sign in with Google',
-      value: AuthType.LOGIN_WITH_GOOGLE,
-      key: AuthType.LOGIN_WITH_GOOGLE,
+  // ── ALL hooks must be declared unconditionally at the top ─────────────────
+  const [afotProviders, setAfotProviders] = useState<string[]>([]);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [showConnect, setShowConnect] = useState(false);
+
+  // Load provider info on mount — jump straight to connect if nothing configured
+  useEffect(() => {
+    const providers = listAfotProviders();
+    setAfotProviders(providers);
+    const resolved = resolveAfotProvider();
+    if (resolved) setActiveProvider(resolved.name);
+    if (providers.length === 0) setShowConnect(true);
+  }, []);
+
+  const handleConnected = useCallback(
+    (providerName: string) => {
+      setActiveProvider(providerName);
+      setAfotProviders(listAfotProviders());
+      setShowConnect(false);
+      onAuthError(null);
+      settings.setValue(
+        SettingScope.User,
+        'security.auth.selectedType',
+        AuthType.AFOT_AUTH,
+      );
+      setAuthContext({});
+      setAuthState(AuthState.Unauthenticated);
     },
-    ...(process.env['CLOUD_SHELL'] === 'true'
-      ? [
-          {
-            label: 'Use Cloud Shell user credentials',
-            value: AuthType.COMPUTE_ADC,
-            key: AuthType.COMPUTE_ADC,
-          },
-        ]
-      : process.env['GEMINI_CLI_USE_COMPUTE_ADC'] === 'true'
-        ? [
-            {
-              label: 'Use metadata server application default credentials',
-              value: AuthType.COMPUTE_ADC,
-              key: AuthType.COMPUTE_ADC,
-            },
-          ]
-        : []),
-    {
-      label: 'Use Gemini API Key',
-      value: AuthType.USE_GEMINI,
-      key: AuthType.USE_GEMINI,
-    },
-    {
-      label: 'Vertex AI',
-      value: AuthType.USE_VERTEX_AI,
-      key: AuthType.USE_VERTEX_AI,
-    },
-  ];
+    [settings, setAuthState, onAuthError, setAuthContext],
+  );
 
-  if (settings.merged.security.auth.enforcedType) {
-    items = items.filter(
-      (item) => item.value === settings.merged.security.auth.enforcedType,
-    );
-  }
-
-  let defaultAuthType: AuthType | null = null;
-  const defaultAuthTypeEnv = process.env['GEMINI_DEFAULT_AUTH_TYPE'];
-  if (
-    defaultAuthTypeEnv &&
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    Object.values(AuthType).includes(defaultAuthTypeEnv as AuthType)
-  ) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    defaultAuthType = defaultAuthTypeEnv as AuthType;
-  }
-
-  let initialAuthIndex = items.findIndex((item) => {
-    if (settings.merged.security.auth.selectedType) {
-      return item.value === settings.merged.security.auth.selectedType;
+  const handleConnectClose = useCallback(() => {
+    if (afotProviders.length === 0) {
+      onAuthError(
+        'You must connect at least one provider to proceed. Press Ctrl+C twice to exit.',
+      );
     }
+    setShowConnect(false);
+  }, [afotProviders.length, onAuthError]);
 
-    if (defaultAuthType) {
-      return item.value === defaultAuthType;
-    }
-
-    if (process.env['GEMINI_API_KEY']) {
-      return item.value === AuthType.USE_GEMINI;
-    }
-
-    return item.value === AuthType.LOGIN_WITH_GOOGLE;
-  });
-  if (settings.merged.security.auth.enforcedType) {
-    initialAuthIndex = 0;
-  }
-
+  // These callbacks and keypress are needed for the "list" screen.
+  // They must be declared unconditionally even when showConnect is true.
   const onSelect = useCallback(
     async (authType: AuthType | undefined, scope: LoadableSettingScope) => {
-      if (exiting) {
+      if (authType === AuthType.AFOT_AUTH) {
+        setShowConnect(true);
         return;
       }
       if (authType) {
-        const needsRestart =
-          authType === AuthType.LOGIN_WITH_GOOGLE ||
-          (authType === AuthType.USE_VERTEX_AI &&
-            process.env['CLOUD_SHELL'] === 'true');
-
-        if (needsRestart) {
-          setAuthContext({ requiresRestart: true });
-        } else {
-          setAuthContext({});
-        }
-
-        const currentAuthType = settings.merged.security?.auth?.selectedType;
-        if (
-          authType === AuthType.LOGIN_WITH_GOOGLE ||
-          currentAuthType === AuthType.LOGIN_WITH_GOOGLE
-        ) {
-          try {
-            await clearCachedCredentialFile();
-          } catch (error) {
-            debugLogger.error('Failed to clear cached credentials:', error);
-            onAuthError(
-              'Failed to clear cached credentials: ' +
-                (error instanceof Error ? error.message : String(error)),
-            );
-            if (authType === AuthType.LOGIN_WITH_GOOGLE) {
-              return;
-            }
-          }
-        }
-
+        setAuthContext({});
         settings.setValue(scope, 'security.auth.selectedType', authType);
-        if (
-          authType === AuthType.LOGIN_WITH_GOOGLE &&
-          config.isBrowserLaunchSuppressed()
-        ) {
-          setExiting(true);
-          setTimeout(() => {
-            void relaunchApp({ overrideAuthType: authType }).catch((err) => {
-              debugLogger.error('Failed to trigger supervisor relaunch:', err);
-              process.exit(1);
-            });
-          }, 100);
-          return;
-        }
-
-        if (authType === AuthType.USE_GEMINI) {
-          // Always show the API key input dialog so the user can
-          // explicitly enter or confirm their key, regardless of
-          // whether GEMINI_API_KEY env var or a stored key exists.
-          setAuthState(AuthState.AwaitingApiKeyInput);
-          return;
-        }
       }
       setAuthState(AuthState.Unauthenticated);
     },
-    [settings, config, setAuthState, exiting, setAuthContext, onAuthError],
+    [settings, setAuthState, setAuthContext],
   );
 
-  const handleAuthSelect = async (authMethod: AuthType) => {
-    const error = await validateAuthMethodWithSettings(
-      authMethod,
-      settings,
-    ).catch((e) => (e instanceof Error ? e.message : String(e)));
-    if (error) {
-      onAuthError(error);
-    } else {
-      onAuthError(null);
-      try {
+  const handleAuthSelect = useCallback(
+    async (authMethod: AuthType) => {
+      const error = await validateAuthMethodWithSettings(
+        authMethod,
+        settings,
+      ).catch((e) => (e instanceof Error ? e.message : String(e)));
+      if (error) {
+        onAuthError(error);
+      } else {
+        onAuthError(null);
         await onSelect(authMethod, SettingScope.User);
-      } catch (e) {
-        onAuthError(e instanceof Error ? e.message : String(e));
       }
-    }
-  };
+    },
+    [onSelect, onAuthError, settings],
+  );
 
+  // Keypress handler is always declared; isActive: !showConnect keeps it idle
+  // while the connect dialog is open (the connect dialog handles its own keys).
   useKeypress(
     (key) => {
       if (key.name === 'escape') {
-        // Prevent exit if there is an error message.
-        // This means they user is not authenticated yet.
-        if (authError) {
-          return true;
-        }
+        if (authError) return true;
         if (settings.merged.security.auth.selectedType === undefined) {
-          // Prevent exiting if no auth method is set
           onAuthError(
             'You must select an auth method to proceed. Press Ctrl+C twice to exit.',
           );
@@ -216,25 +133,65 @@ export function AuthDialog({
       }
       return false;
     },
-    { isActive: true },
+    { isActive: !showConnect },
   );
+  // ─────────────────────────────────────────────────────────────────────────
 
-  if (exiting) {
+  // Show the OpenCode-style connect dialog (no hooks after this point)
+  if (showConnect) {
     return (
-      <Box
-        borderStyle="round"
-        borderColor={theme.ui.focus}
-        flexDirection="row"
-        padding={1}
-        width="100%"
-        alignItems="flex-start"
-      >
-        <Text color={theme.text.primary}>
-          Logging in with Google... Restarting Gemini CLI to continue.
-        </Text>
-      </Box>
+      <ProviderConnectDialog
+        onConnected={handleConnected}
+        onClose={handleConnectClose}
+      />
     );
   }
+
+  // ── Simple selection screen (provider already configured) ─────────────────
+  let items = [
+    {
+      label: activeProvider
+        ? `AFOT Auth  (active: ${activeProvider})`
+        : afotProviders.length > 0
+          ? `AFOT Auth  (${afotProviders.length} provider${afotProviders.length > 1 ? 's' : ''} available)`
+          : 'AFOT Auth  (press Enter to connect a provider)',
+      value: AuthType.AFOT_AUTH,
+      key: AuthType.AFOT_AUTH,
+    },
+    ...(process.env['CLOUD_SHELL'] === 'true'
+      ? [
+          {
+            label: 'Cloud Shell credentials (ADC)',
+            value: AuthType.COMPUTE_ADC,
+            key: AuthType.COMPUTE_ADC,
+          },
+        ]
+      : process.env['GEMINI_CLI_USE_COMPUTE_ADC'] === 'true'
+        ? [
+            {
+              label: 'Metadata server application default credentials',
+              value: AuthType.COMPUTE_ADC,
+              key: AuthType.COMPUTE_ADC,
+            },
+          ]
+        : []),
+  ];
+
+  if (settings.merged.security.auth.enforcedType) {
+    items = items.filter(
+      (item) => item.value === settings.merged.security.auth.enforcedType,
+    );
+  }
+
+  const initialAuthIndex = Math.max(
+    0,
+    items.findIndex((item) => {
+      if (settings.merged.security.auth.selectedType) {
+        return item.value === settings.merged.security.auth.selectedType;
+      }
+      return item.value === AuthType.AFOT_AUTH;
+    }),
+  );
 
   return (
     <Box
@@ -252,7 +209,7 @@ export function AuthDialog({
         </Text>
         <Box marginTop={1}>
           <Text color={theme.text.primary}>
-            How would you like to authenticate for this project?
+            How would you like to authenticate?
           </Text>
         </Box>
         <Box marginTop={1}>
@@ -270,18 +227,21 @@ export function AuthDialog({
             <Text color={theme.status.error}>{authError}</Text>
           </Box>
         )}
+        {afotProviders.length > 0 ? (
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              Providers: {afotProviders.join(', ')}
+            </Text>
+          </Box>
+        ) : (
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              Press Enter to connect a provider
+            </Text>
+          </Box>
+        )}
         <Box marginTop={1}>
           <Text color={theme.text.secondary}>(Use Enter to select)</Text>
-        </Box>
-        <Box marginTop={1}>
-          <Text color={theme.text.primary}>
-            Terms of Services and Privacy Notice for Gemini CLI
-          </Text>
-        </Box>
-        <Box marginTop={1}>
-          <Text color={theme.text.link}>
-            {'https://geminicli.com/docs/resources/tos-privacy/'}
-          </Text>
         </Box>
       </Box>
     </Box>

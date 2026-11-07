@@ -162,6 +162,9 @@ class LSToolInvocation extends BaseToolInvocation<LSToolParams, ToolResult> {
       this.params.dir_path,
     );
 
+    // AFOT path guard
+    await this.checkPathPermission(resolvedDirPath, 'read', _signal);
+
     const validationError = this.config.validatePathAccess(
       resolvedDirPath,
       'read',

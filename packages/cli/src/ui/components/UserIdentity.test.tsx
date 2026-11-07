@@ -34,7 +34,7 @@ describe('<UserIdentity />', () => {
   it('should render login message and auth indicator', async () => {
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue(undefined);
@@ -53,7 +53,7 @@ describe('<UserIdentity />', () => {
   it('should render the user email on the very first frame (regression test)', async () => {
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue(undefined);
@@ -79,7 +79,7 @@ describe('<UserIdentity />', () => {
 
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue(undefined);
@@ -99,7 +99,7 @@ describe('<UserIdentity />', () => {
   it('should render plan name and upgrade indicator', async () => {
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue('Premium Plan');
@@ -143,7 +143,7 @@ describe('<UserIdentity />', () => {
   it('should render non-Google auth message', async () => {
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.USE_GEMINI,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue(undefined);
@@ -153,7 +153,7 @@ describe('<UserIdentity />', () => {
     );
 
     const output = lastFrame();
-    expect(output).toContain(`Authenticated with ${AuthType.USE_GEMINI}`);
+    expect(output).toContain(`Authenticated with ${AuthType.AFOT_AUTH}`);
     expect(output).toContain('/auth');
     expect(output).not.toContain('/upgrade');
     unmount();
@@ -162,7 +162,7 @@ describe('<UserIdentity />', () => {
   it('should render specific tier name when provided', async () => {
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue('Enterprise Tier');
@@ -180,7 +180,7 @@ describe('<UserIdentity />', () => {
   it('should not render /upgrade indicator for ultra tiers', async () => {
     const mockConfig = makeFakeConfig();
     vi.spyOn(mockConfig, 'getContentGeneratorConfig').mockReturnValue({
-      authType: AuthType.LOGIN_WITH_GOOGLE,
+      authType: AuthType.AFOT_AUTH,
       model: 'gemini-pro',
     } as unknown as ContentGeneratorConfig);
     vi.spyOn(mockConfig, 'getUserTierName').mockReturnValue('Advanced Ultra');

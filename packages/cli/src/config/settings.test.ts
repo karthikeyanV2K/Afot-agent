@@ -276,7 +276,7 @@ describe('Settings Loading and Merging', () => {
             return JSON.stringify({
               security: {
                 auth: {
-                  selectedType: AuthType.USE_GEMINI,
+                  selectedType: AuthType.AFOT_AUTH,
                 },
               },
             });
@@ -285,15 +285,15 @@ describe('Settings Loading and Merging', () => {
         },
       );
 
-      vi.stubEnv('GEMINI_CLI_AUTH_OVERRIDE', AuthType.LOGIN_WITH_GOOGLE);
+      vi.stubEnv('GEMINI_CLI_AUTH_OVERRIDE', AuthType.AFOT_AUTH);
 
       const settings = loadSettings(MOCK_WORKSPACE_DIR);
 
       expect(settings.user.settings.security?.auth?.selectedType).toBe(
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
       );
       expect(settings.merged.security.auth.selectedType).toBe(
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
       );
       expect(process.env['GEMINI_CLI_AUTH_OVERRIDE']).toBeUndefined();
     });
@@ -4155,7 +4155,7 @@ MALICIOUS_VAR=allowed-because-trusted
         loadEnvironment(
           createMockSettings({
             tools: { sandbox: false },
-            security: { auth: { selectedType: AuthType.USE_VERTEX_AI } },
+            security: { auth: { selectedType: AuthType.GATEWAY } },
           }).merged,
           MOCK_WORKSPACE_DIR,
         );
@@ -4181,7 +4181,7 @@ MALICIOUS_VAR=allowed-because-trusted
         loadEnvironment(
           createMockSettings({
             tools: { sandbox: false },
-            security: { auth: { selectedType: AuthType.USE_VERTEX_AI } },
+            security: { auth: { selectedType: AuthType.GATEWAY } },
           }).merged,
           MOCK_WORKSPACE_DIR,
         );
@@ -4209,7 +4209,7 @@ MALICIOUS_VAR=allowed-because-trusted
         loadEnvironment(
           createMockSettings({
             tools: { sandbox: false },
-            security: { auth: { selectedType: AuthType.USE_VERTEX_AI } },
+            security: { auth: { selectedType: AuthType.GATEWAY } },
           }).merged,
           MOCK_WORKSPACE_DIR,
         );
@@ -4238,7 +4238,7 @@ MALICIOUS_VAR=allowed-because-trusted
         loadEnvironment(
           createMockSettings({
             tools: { sandbox: false },
-            security: { auth: { selectedType: AuthType.USE_VERTEX_AI } },
+            security: { auth: { selectedType: AuthType.GATEWAY } },
           }).merged,
           MOCK_WORKSPACE_DIR,
         );
@@ -4261,7 +4261,7 @@ MALICIOUS_VAR=allowed-because-trusted
         loadEnvironment(
           createMockSettings({
             tools: { sandbox: false },
-            security: { auth: { selectedType: AuthType.USE_VERTEX_AI } },
+            security: { auth: { selectedType: AuthType.GATEWAY } },
           }).merged,
           MOCK_WORKSPACE_DIR,
         );

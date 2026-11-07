@@ -212,7 +212,7 @@ describe('loggers', () => {
       getContentGeneratorConfig: () => ({
         model: 'test-model',
         apiKey: 'test-api-key',
-        authType: AuthType.USE_VERTEX_AI,
+        authType: AuthType.GATEWAY,
       }),
       getTelemetryEnabled: () => true,
       getUsageStatisticsEnabled: () => true,
@@ -327,7 +327,7 @@ describe('loggers', () => {
       const event = new UserPromptEvent(
         11,
         'prompt-id-8',
-        AuthType.USE_VERTEX_AI,
+        AuthType.GATEWAY,
         'test-prompt',
       );
 
@@ -469,7 +469,7 @@ describe('loggers', () => {
             },
           ],
         },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         usageData,
         'test-response',
       );
@@ -588,7 +588,7 @@ describe('loggers', () => {
         100,
         { prompt_id: 'prompt-id-1', contents: [] },
         { candidates: [] },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         undefined,
         'test-response',
       );
@@ -626,7 +626,7 @@ describe('loggers', () => {
         100,
         { prompt_id: 'prompt-id-role', contents: [] },
         { candidates: [] },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         {},
         'test-response',
         LlmRole.SUBAGENT,
@@ -662,7 +662,7 @@ describe('loggers', () => {
         100,
         { prompt_id: 'prompt-id-noprompts', contents: [] },
         { candidates: [] },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         {},
         'this response should be hidden',
       );
@@ -679,7 +679,7 @@ describe('loggers', () => {
         100,
         { prompt_id: 'prompt-id-withprompts', contents: [] },
         { candidates: [] },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         {},
         'this response should be visible',
       );
@@ -756,7 +756,7 @@ describe('loggers', () => {
             port: 8080,
           },
         },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         'ApiError',
         503,
       );
@@ -848,7 +848,7 @@ describe('loggers', () => {
         'error',
         100,
         { prompt_id: 'prompt-id-1', contents: [] },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         'ApiError',
         500,
       );
@@ -881,7 +881,7 @@ describe('loggers', () => {
         'error',
         100,
         { prompt_id: 'prompt-id-role', contents: [] },
-        AuthType.LOGIN_WITH_GOOGLE,
+        AuthType.AFOT_AUTH,
         'ApiError',
         503,
         LlmRole.SUBAGENT,
@@ -912,7 +912,7 @@ describe('loggers', () => {
       getExperiments: () => undefined,
       getExperimentsAsync: async () => undefined,
       getContentGeneratorConfig: () => ({
-        authType: AuthType.LOGIN_WITH_GOOGLE,
+        authType: AuthType.AFOT_AUTH,
       }),
     } as Config;
 
@@ -991,7 +991,7 @@ describe('loggers', () => {
         getExperiments: () => undefined,
         getExperimentsAsync: async () => undefined,
         getContentGeneratorConfig: () => ({
-          authType: AuthType.USE_GEMINI,
+          authType: AuthType.AFOT_AUTH,
         }),
       } as Config;
 
@@ -1081,7 +1081,7 @@ describe('loggers', () => {
         getExperiments: () => undefined,
         getExperimentsAsync: async () => undefined,
         getContentGeneratorConfig: () => ({
-          authType: AuthType.USE_VERTEX_AI,
+          authType: AuthType.GATEWAY,
         }),
       } as Config;
 
@@ -1142,7 +1142,7 @@ describe('loggers', () => {
         getExperimentsAsync: async () => undefined,
         getUsageStatisticsEnabled: () => true,
         getContentGeneratorConfig: () => ({
-          authType: AuthType.USE_GEMINI,
+          authType: AuthType.AFOT_AUTH,
         }),
       } as Config;
 
@@ -1202,7 +1202,7 @@ describe('loggers', () => {
     } as unknown as Config;
 
     it('should log flash fallback event', () => {
-      const event = new FlashFallbackEvent(AuthType.USE_VERTEX_AI);
+      const event = new FlashFallbackEvent(AuthType.GATEWAY);
 
       logFlashFallback(mockConfig, event);
 

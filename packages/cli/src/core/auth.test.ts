@@ -39,11 +39,11 @@ describe('auth', () => {
   it('should return null on successful auth', async () => {
     const result = await performInitialAuth(
       mockConfig,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
     expect(result).toEqual({ authError: null, accountSuspensionInfo: null });
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
   });
 
@@ -52,14 +52,14 @@ describe('auth', () => {
     vi.mocked(mockConfig.refreshAuth).mockRejectedValue(error);
     const result = await performInitialAuth(
       mockConfig,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
     expect(result).toEqual({
       authError: 'Failed to sign in. Message: Authentication failed',
       accountSuspensionInfo: null,
     });
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
   });
 
@@ -69,11 +69,11 @@ describe('auth', () => {
     );
     const result = await performInitialAuth(
       mockConfig,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
     expect(result).toEqual({ authError: null, accountSuspensionInfo: null });
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
   });
 
@@ -102,7 +102,7 @@ describe('auth', () => {
     });
     const result = await performInitialAuth(
       mockConfig,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
     expect(result).toEqual({
       authError: null,
@@ -114,7 +114,7 @@ describe('auth', () => {
       },
     });
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
   });
 
@@ -123,7 +123,7 @@ describe('auth', () => {
     vi.mocked(mockConfig.refreshAuth).mockRejectedValue(projectIdError);
     const result = await performInitialAuth(
       mockConfig,
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
     expect(result).toEqual({
       authError:
@@ -132,7 +132,7 @@ describe('auth', () => {
     });
     expect(result.authError).not.toContain('Failed to login');
     expect(mockConfig.refreshAuth).toHaveBeenCalledWith(
-      AuthType.LOGIN_WITH_GOOGLE,
+      AuthType.AFOT_AUTH,
     );
   });
 });
