@@ -79,6 +79,7 @@ function formatModelName(modelId: string): string {
     'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash',
     'deepseek-v4.1-flash-free': 'DeepSeek V4.1 Flash Free',
     'nemotron-3.5-super-vl-free': 'Nemotron 3.5 Super VL Free',
+    'nemotron-3.5-super-vl-120b-a12b': 'Nemotron 3.5 Super VL',
     'nemotron-3.5-lightning-free': 'Nemotron 3.5 Lightning Free',
     'crouton-alpha-free': 'Crouton Alpha Free',
     'flint-40b-free': 'Flint 40B Free',
@@ -141,6 +142,7 @@ function formatProviderName(id: string): string {
 function isFreeModel(modelId: string, providerKey: string): boolean {
   if (modelId.toLowerCase().includes('free')) return true;
   if (providerKey === 'nvidia') return true;
+  if (providerKey === 'opencode') return true;
   return false;
 }
 
@@ -349,13 +351,11 @@ function AfotUnifiedModelDialog({
   const handleSelectModel = useCallback(
     async (item: UnifiedModelItem) => {
       const curProv = resolveAfotActiveProviderName();
-      if (item.providerKey !== curProv) {
-        setAfotDefaultProvider(item.providerKey);
-        if (config?.refreshAuth) {
-          await config.refreshAuth(AuthType.AFOT_AUTH);
-        }
-      }
+      setAfotDefaultProvider(item.providerKey);
       setAfotProviderDefaultModel(item.providerKey, item.id);
+      if (item.providerKey !== curProv && config?.refreshAuth) {
+        await config.refreshAuth(AuthType.AFOT_AUTH);
+      }
       if (config) {
         config.setModel(item.id, true);
         const event = new ModelSlashCommandEvent(item.id);
@@ -445,7 +445,7 @@ function AfotUnifiedModelDialog({
       renderedRows.push(
         <Box key={`sec-${entry.section}`} paddingTop={visIdx === 0 ? 0 : 1}>
           <Text bold color="#c084fc">
-            {entry.section}
+            {'  '}{entry.section}
           </Text>
         </Box>,
       );
@@ -462,23 +462,20 @@ function AfotUnifiedModelDialog({
 
   return (
     <Box
-      borderStyle="round"
-      borderColor="#2e3830"
       flexDirection="column"
-      paddingX={2}
       paddingY={1}
-      width={68}
+      width={64}
     >
       {/* Header */}
-      <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+      <Box flexDirection="row" justifyContent="space-between" marginBottom={1} width="100%">
         <Text bold color="#22c55e">
-          Select model
+          {'  '}Select model
         </Text>
         <Text color={theme.text.secondary}>esc</Text>
       </Box>
 
       {/* Search Input */}
-      <Box marginBottom={1}>
+      <Box marginBottom={1} paddingLeft={2}>
         <TextInput
           buffer={searchBuffer}
           placeholder="Search"
@@ -489,7 +486,7 @@ function AfotUnifiedModelDialog({
 
       {/* Scroll indicator up */}
       {scrollOffset > 0 && (
-        <Box paddingLeft={1}>
+        <Box paddingLeft={2}>
           <Text color={theme.text.secondary}>▲</Text>
         </Box>
       )}
@@ -507,14 +504,14 @@ function AfotUnifiedModelDialog({
 
       {/* Scroll indicator down */}
       {scrollOffset + MAX_VISIBLE_MODELS < filteredItems.length && (
-        <Box paddingLeft={1}>
+        <Box paddingLeft={2}>
           <Text color={theme.text.secondary}>▼</Text>
         </Box>
       )}
 
       {/* Footer */}
       <Box marginTop={1} flexDirection="row">
-        <Text color="#4ade80">Connect an integration </Text>
+        <Text color="#4ade80">{'  '}Connect an integration </Text>
         <Text color={theme.text.secondary}>ctrl+a    </Text>
         <Text color="#4ade80">Favorite </Text>
         <Text color={theme.text.secondary}>ctrl+f</Text>

@@ -280,11 +280,17 @@ export async function fetchOpenCodeConsoleConfig(
     .filter(([, meta]) => !(meta as { disabled?: boolean })?.disabled)
     .map(([id]) => id);
 
-  // If the account has no enabled paid models, only return verified free models.
-  // Never fall back to disabled paid models.
+  // Strictly filter to verified free models so disabled or paid Claude models
+  // never leak into the OpenCode provider catalog.
+  const freeEnabled = enabledModels.filter(
+    (id) =>
+      OPENCODE_FREE_MODELS.includes(id) ||
+      id.includes('-free') ||
+      id === 'big-pickle',
+  );
   const models =
-    enabledModels.length > 0
-      ? Array.from(new Set([...OPENCODE_FREE_MODELS, ...enabledModels]))
+    freeEnabled.length > 0
+      ? Array.from(new Set([...OPENCODE_FREE_MODELS, ...freeEnabled]))
       : [...OPENCODE_FREE_MODELS];
 
   return { baseUrl, models, orgId };
@@ -340,6 +346,7 @@ export async function resolveOpenCodeProvider(): Promise<{
   baseUrl: string;
   models: string[];
   name: string;
+  headers?: Record<string, string>;
 } | null> {
   const tokenResult = await ensureValidOpenCodeToken();
   if (!tokenResult) return null;
@@ -365,5 +372,8 @@ export async function resolveOpenCodeProvider(): Promise<{
     baseUrl,
     models,
     name: 'opencode',
+    headers: credential.org_id
+      ? { 'x-opencode-org-id': credential.org_id }
+      : undefined,
   };
 }

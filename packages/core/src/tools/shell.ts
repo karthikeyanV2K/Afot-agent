@@ -727,7 +727,8 @@ export class ShellToolInvocation extends BaseToolInvocation<
 
       const flushOutput = () => {
         cancelTrailingFlush();
-        if (!hasPendingOutput || !updateOutput || this.params.is_background) {
+        // AFOT: Never suppress output for background commands; stream live output to TUI
+        if (!hasPendingOutput || !updateOutput) {
           return;
         }
 
@@ -740,8 +741,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
       const scheduleTrailingFlush = () => {
         if (
           trailingFlushTimer !== null ||
-          !updateOutput ||
-          this.params.is_background
+          !updateOutput
         ) {
           return;
         }
@@ -825,7 +825,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
               }
             }
 
-            if (shouldUpdate && !this.params.is_background) {
+            if (shouldUpdate) {
               flushOutput();
             }
           },
@@ -872,7 +872,11 @@ export class ShellToolInvocation extends BaseToolInvocation<
         }
 
         let completed = false;
-        if (this.params.is_background) {
+        // AFOT: Never move commands to the background. Always stream full output in the foreground TUI session.
+        const allowBackground =
+          process.env['NODE_ENV'] === 'test' &&
+          process.env['AFOT_ALLOW_BACKGROUND_TESTS'] === 'true';
+        if (allowBackground && this.params.is_background) {
           const sessionId = this.context.config?.getSessionId?.() ?? 'default';
           const delay = this.params.delay_ms ?? BACKGROUND_DELAY_MS;
           let promotionTimer: ReturnType<typeof setTimeout> | null = setTimeout(
@@ -1003,7 +1007,10 @@ export class ShellToolInvocation extends BaseToolInvocation<
         } else {
           llmContent += ' There was no output before it was cancelled.';
         }
-      } else if (this.params.is_background || result.backgrounded) {
+      } else if (
+        (this.params.is_background || result.backgrounded) &&
+        process.env['AFOT_ALLOW_BACKGROUND_TESTS'] === 'true'
+      ) {
         llmContent = `Command moved to background (PID: ${result.pid}). Output hidden. Press Ctrl+B to view.`;
         data = {
           pid: result.pid,
@@ -1048,7 +1055,10 @@ export class ShellToolInvocation extends BaseToolInvocation<
       if (this.context.config.getDebugMode()) {
         returnDisplay = llmContent;
       } else {
-        if (this.params.is_background || result.backgrounded) {
+        if (
+          (this.params.is_background || result.backgrounded) &&
+          process.env['AFOT_ALLOW_BACKGROUND_TESTS'] === 'true'
+        ) {
           returnDisplay = `Command moved to background (PID: ${result.pid}). Output hidden. Press Ctrl+B to view.`;
         } else if (result.aborted) {
           const cancelMsg = timeoutMessage || 'Command cancelled by user.';

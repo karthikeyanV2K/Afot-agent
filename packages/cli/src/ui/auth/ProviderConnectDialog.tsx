@@ -47,13 +47,16 @@ import { TextInput } from '../components/shared/TextInput.js';
 // ─── Provider ordering (matches OpenCode's INTEGRATION_PRIORITY) ──────────────
 
 const POPULAR_PROVIDERS = new Set([
-  'opencode',     // OpenCode Console — first, like OpenCode's own dialog
-  'openrouter',
-  'anthropic',
+  'opencode', // OpenCode Console — first, like OpenCode's own dialog
+  'opencode-go',
   'openai',
+  'github-copilot',
+  'anthropic',
   'google-ai',
-  'groq',
+  'openrouter',
+  'nvidia',
   'deepseek',
+  'groq',
   'mistral',
   'cline-pass',
 ]);
@@ -133,22 +136,24 @@ function buildProviderList(activeProviderName: string | null): ProviderEntry[] {
 function formatProviderName(id: string): string {
   const map: Record<string, string> = {
     opencode: 'OpenCode Console',
-    openrouter: 'OpenRouter',
-    nvidia: 'NVIDIA NIM',
-    anthropic: 'Anthropic',
+    'opencode-go': 'OpenCode Go',
     openai: 'OpenAI',
-    'google-ai': 'Google AI',
+    'github-copilot': 'GitHub Copilot',
+    anthropic: 'Anthropic',
+    'google-ai': 'Google',
+    openrouter: 'OpenRouter',
+    nvidia: 'NVIDIA',
     deepseek: 'DeepSeek',
     groq: 'Groq',
     mistral: 'Mistral',
     together: 'Together AI',
-    xai: 'xAI (Grok)',
+    xai: 'xAI',
     cohere: 'Cohere',
     perplexity: 'Perplexity',
     zai: 'Z.AI',
     'cline-pass': 'ClinePass',
-    ollama: 'Ollama (local)',
-    lmstudio: 'LM Studio (local)',
+    ollama: 'Ollama',
+    lmstudio: 'LM Studio',
   };
   return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -383,8 +388,8 @@ function ProviderListScreen({
       lastCategory = entry.category;
       renderedRows.push(
         <Box key={`cat-${entry.category}`} paddingTop={visIdx === 0 ? 0 : 1}>
-          <Text color={theme.text.accent} bold>
-            {entry.category}
+          <Text color="#c084fc" bold>
+            {'  '}{entry.category}
           </Text>
         </Box>,
       );
@@ -401,27 +406,20 @@ function ProviderListScreen({
 
   return (
     <Box
-      borderStyle="round"
-      borderColor={theme.ui.focus}
       flexDirection="column"
-      padding={1}
-      width="100%"
+      paddingY={1}
+      width={64}
     >
       {/* Header */}
-      <Box marginBottom={1} flexDirection="row" justifyContent="space-between">
-        <Text bold color={theme.text.primary}>
-          Connect an integration
+      <Box marginBottom={1} flexDirection="row" justifyContent="space-between" width="100%">
+        <Text bold color="#22c55e">
+          {'  '}Connect an integration
         </Text>
         <Text color={theme.text.secondary}>esc</Text>
       </Box>
 
       {/* Search input */}
-      <Box
-        borderStyle="single"
-        borderColor={theme.border.default}
-        paddingX={1}
-        marginBottom={1}
-      >
+      <Box marginBottom={1} paddingLeft={2}>
         <TextInput
           buffer={searchBuffer}
           placeholder="Search"
@@ -431,7 +429,7 @@ function ProviderListScreen({
 
       {/* Scroll up indicator */}
       {scrollOffset > 0 && (
-        <Box paddingLeft={1}>
+        <Box paddingLeft={2}>
           <Text color={theme.text.secondary}>▲</Text>
         </Box>
       )}
@@ -449,15 +447,10 @@ function ProviderListScreen({
 
       {/* Scroll down indicator */}
       {scrollOffset + MAX_VISIBLE < filtered.length && (
-        <Box paddingLeft={1}>
+        <Box paddingLeft={2}>
           <Text color={theme.text.secondary}>▼</Text>
         </Box>
       )}
-
-      {/* Footer */}
-      <Box marginTop={1}>
-        <Text color={theme.text.secondary}>↑↓ navigate  Enter select</Text>
-      </Box>
     </Box>
   );
 }
@@ -469,26 +462,31 @@ function ProviderRow({
   entry: ProviderEntry;
   isActive: boolean;
 }): React.JSX.Element {
-  const rowColor = isActive ? theme.text.accent : theme.text.primary;
-  const cursor = isActive ? '▶ ' : '  ';
+  if (isActive) {
+    return (
+      <Box backgroundColor="#22c55e" width="100%" flexDirection="row" justifyContent="space-between">
+        <Text color="#000000" bold>
+          {'  '}{entry.name}
+        </Text>
+        {entry.isActive && (
+          <Text color="#000000" bold>
+            ✓{' '}
+          </Text>
+        )}
+      </Box>
+    );
+  }
 
   return (
-    <Box flexDirection="row" paddingLeft={1}>
-      <Text color={isActive ? theme.text.accent : theme.text.secondary}>
-        {cursor}
+    <Box width="100%" flexDirection="row" justifyContent="space-between">
+      <Text color="#4ade80">
+        {'  '}{entry.name}
       </Text>
-      <Box flexDirection="row" flexGrow={1} justifyContent="space-between">
-        <Text color={rowColor}>{entry.name}</Text>
-        <Text color={entry.isActive ? theme.status.success : theme.text.secondary}>
-          {entry.isActive
-            ? '✓ active'
-            : entry.configured && !entry.isLocal
-              ? '● connected'
-              : entry.isLocal
-                ? '(local)'
-                : ''}
+      {entry.isActive && (
+        <Text color="#22c55e">
+          ✓{' '}
         </Text>
-      </Box>
+      )}
     </Box>
   );
 }

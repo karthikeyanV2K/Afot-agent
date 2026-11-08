@@ -56,6 +56,10 @@ function getBestAvailableUpdate(
 export async function checkForUpdates(
   settings: LoadedSettings,
 ): Promise<UpdateObject | null> {
+  // AFOT: Google / npm update checks disabled completely — no phone-home or registry queries
+  if (process.env['AFOT_ENABLE_UPDATE_CHECK'] !== 'true') {
+    return null;
+  }
   try {
     if (!settings.merged.general.enableAutoUpdateNotification) {
       return null;

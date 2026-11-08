@@ -32,8 +32,8 @@ vi.mock('./apiKeyCredentialStorage.js', () => ({
 }));
 vi.mock('./afotAuthStorage.js', () => ({
   resolveAfotProvider: vi.fn(),
-  resolveAfotActiveProviderName: vi.fn(),
-  fetchAfotProviderModels: vi.fn().mockResolvedValue([]),
+  resolveAfotActiveProviderName: vi.fn().mockReturnValue('openrouter'),
+  fetchAfotProviderModels: vi.fn().mockResolvedValue(['test-model']),
   readAfotAuthFile: vi.fn(),
   readAfotConfig: vi.fn(),
   listAfotProviders: vi.fn(),

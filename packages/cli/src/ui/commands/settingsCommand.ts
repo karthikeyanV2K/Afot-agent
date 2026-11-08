@@ -12,7 +12,7 @@ import {
 
 export const settingsCommand: SlashCommand = {
   name: 'settings',
-  description: 'View and edit Gemini CLI settings',
+  description: 'View and edit AFOT CLI settings',
   kind: CommandKind.BUILT_IN,
   autoExecute: true,
   action: (_context, _args): OpenDialogActionReturn => ({

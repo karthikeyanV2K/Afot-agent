@@ -10,6 +10,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
+    "afot": "dist/index.js",
     "gemini": "dist/index.js"
   },
   "scripts": {

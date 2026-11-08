@@ -161,28 +161,53 @@ export function useQuotaAndFallback({
           // Keep the API text. A generic usage-limit line hides the spend cap.
           message = error.message;
         } else {
-          const messageLines = [
-            `Usage limit reached for ${usageLimitReachedModel}.`,
-            error.retryDelayMs
-              ? `Access resets at ${getResetTimeMessage(error.retryDelayMs)}.`
-              : null,
-            `/stats model for usage details`,
-            `/model to switch models.`,
-            contentGeneratorConfig?.authType === AuthType.AFOT_AUTH
-              ? `/auth to switch provider.`
-              : null,
-          ].filter(Boolean);
-          message = messageLines.join('\n');
+          if (
+            contentGeneratorConfig?.authType === AuthType.AFOT_AUTH &&
+            errorObj?.['reason'] === 'PROVIDER_QUOTA_EXHAUSTED'
+          ) {
+            const messageLines = [
+              error.message || `Usage limit reached for ${usageLimitReachedModel}.`,
+              error.retryDelayMs
+                ? `Free limit resets at ${getResetTimeMessage(error.retryDelayMs)} (in ${formatRelativeTime(error.retryDelayMs)}).`
+                : null,
+              `/provider list to switch provider (e.g. /provider use nvidia)`,
+              `/model to switch models.`,
+            ].filter(Boolean);
+            message = messageLines.join('\n');
+          } else {
+            const messageLines = [
+              `Usage limit reached for ${usageLimitReachedModel}.`,
+              error.retryDelayMs
+                ? `Access resets at ${getResetTimeMessage(error.retryDelayMs)}.`
+                : null,
+              `/stats model for usage details`,
+              `/model to switch models.`,
+              contentGeneratorConfig?.authType === AuthType.AFOT_AUTH
+                ? `/auth to switch provider.`
+                : `/auth to switch to API key.`,
+            ].filter(Boolean);
+            message = messageLines.join('\n');
+          }
         }
       } else if (error instanceof ModelNotFoundError) {
         isModelNotFoundError = true;
-        if (
+        const location = process.env['GOOGLE_CLOUD_LOCATION'];
+        if (location && VALID_GEMINI_MODELS.has(failedModel)) {
+          const messageLines = [
+            `Model "${failedModel}" is not available in region "${location}".`,
+            `To see which models are available in this region, please visit:`,
+            `https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations`,
+            `/model to switch models.`,
+          ];
+          message = messageLines.join('\n');
+        } else if (
           contentGeneratorConfig?.authType === AuthType.AFOT_AUTH &&
-          VALID_GEMINI_MODELS.has(failedModel)
+          !VALID_GEMINI_MODELS.has(failedModel) &&
+          failedModel !== 'invalid-model'
         ) {
           const messageLines = [
-            `Model "${failedModel}" is not available from your current AFOT provider.`,
-            `Check your provider's supported models in ~/.afot/config.json`,
+            `Model "${failedModel}" is not supported by your active provider.`,
+            `/provider list to switch provider (e.g. /provider use nvidia)`,
             `/model to switch models.`,
           ];
           message = messageLines.join('\n');
@@ -369,6 +394,22 @@ export function useQuotaAndFallback({
     emptyWalletRequest,
     handleEmptyWalletChoice,
   };
+}
+
+function formatRelativeTime(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${totalSeconds}s`;
 }
 
 function getResetTimeMessage(delayMs: number): string {
