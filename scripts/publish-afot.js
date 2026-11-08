@@ -114,11 +114,23 @@ try {
     const tokenFlag = token ? ` --//registry.npmjs.org/:_authToken="${token.trim()}"` : '';
     const otpArg = process.argv.find((arg) => arg.startsWith('--otp='));
     const otpFlag = otpArg ? ` ${otpArg}` : '';
-    execSync(`npm publish --access public${tokenFlag}${otpFlag}`, { stdio: 'inherit', cwd: cliDir });
+    const publishEnv = {
+      ...process.env,
+      ...(token ? { NODE_AUTH_TOKEN: token.trim() } : {}),
+    };
+    execSync(`npm publish --access public${tokenFlag}${otpFlag}`, {
+      stdio: 'inherit',
+      cwd: cliDir,
+      env: publishEnv,
+    });
     console.log('🎉 Successfully published afot-cli to npm registry!');
-    console.log('Updating dist-tag latest to 1.1.1...');
-    execSync(`npm dist-tag add afot-cli@1.1.1 latest${tokenFlag}`, { stdio: 'inherit', cwd: cliDir });
-    console.log('Dist-tag latest updated to 1.1.1.');
+    console.log(`Updating dist-tag latest to ${cliPkg.version}...`);
+    execSync(`npm dist-tag add afot-cli@${cliPkg.version} latest${tokenFlag}`, {
+      stdio: 'inherit',
+      cwd: cliDir,
+      env: publishEnv,
+    });
+    console.log(`Dist-tag latest updated to ${cliPkg.version}.`);
   } else {
     console.log('\nDry run complete! Run with --publish to publish live to npm.');
   }
