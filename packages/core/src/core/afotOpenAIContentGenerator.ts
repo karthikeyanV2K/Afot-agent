@@ -265,6 +265,120 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
   // ─── Translation: OpenAI → Gemini ──────────────────────────────────────────
 
+  private normalizeToolArgs(
+    name: string,
+    args: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const norm: Record<string, unknown> = { ...args };
+    if (name === 'read_file' || name === 'write_file' || name === 'edit') {
+      if (!norm['file_path'] && norm['path']) {
+        norm['file_path'] = norm['path'];
+      }
+      if (!norm['file_path'] && norm['Path']) {
+        norm['file_path'] = norm['Path'];
+      }
+    }
+    if (name === 'shell' || name === 'run_command') {
+      if (!norm['command'] && norm['cmd']) {
+        norm['command'] = norm['cmd'];
+      }
+      if (!norm['command'] && norm['CommandLine']) {
+        norm['command'] = norm['CommandLine'];
+      }
+    }
+    return norm;
+  }
+
+  private parseEmbeddedTextToolCalls(rawText: string): {
+    cleanText: string;
+    toolCalls: Array<{ id: string; function: { name: string; arguments: string } }>;
+  } {
+    if (
+      !rawText.includes('<tool_call>') &&
+      !rawText.includes('<invoke') &&
+      !rawText.includes(']<]minimax[>')
+    ) {
+      return { cleanText: rawText, toolCalls: [] };
+    }
+
+    const clean = rawText
+      .replace(/\]<\]minimax\[>\[?/g, '')
+      .replace(/\]<\]/g, '');
+    const toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> = [];
+
+    // 1. Match XML invoke pattern: <invoke name="...">...</invoke>
+    const invokeRegex = /<invoke\s+name=["']?([^"'\s>]+)["']?>([\s\S]*?)<\/invoke>/g;
+    let match: RegExpExecArray | null;
+    while ((match = invokeRegex.exec(clean)) !== null) {
+      const name = match[1].replace(/^["']|["']$/g, '');
+      const body = match[2];
+      const args: Record<string, unknown> = {};
+      const paramRegex = /<([a-zA-Z0-9_-]+)(?:\s+name=["']?([^"'\s>]+)["']?)?>([\s\S]*?)<\/\1>/g;
+      let pMatch: RegExpExecArray | null;
+      while ((pMatch = paramRegex.exec(body)) !== null) {
+        const pKey = (pMatch[2] || pMatch[1]).replace(/^["']|["']$/g, '');
+        const pVal = pMatch[3].trim();
+        try {
+          args[pKey] = JSON.parse(pVal);
+        } catch {
+          args[pKey] = pVal;
+        }
+      }
+      const normalizedArgs = this.normalizeToolArgs(name, args);
+      toolCalls.push({
+        id: `call_${Math.random().toString(36).slice(2, 9)}`,
+        function: { name, arguments: JSON.stringify(normalizedArgs) },
+      });
+    }
+
+    // 2. Match JSON format inside <tool_call>...</tool_call>
+    const jsonRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+    let jMatch: RegExpExecArray | null;
+    while ((jMatch = jsonRegex.exec(clean)) !== null) {
+      const inner = jMatch[1].trim();
+      if (inner.startsWith('{') && inner.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(inner) as {
+            name?: string;
+            arguments?: Record<string, unknown> | string;
+          };
+          if (parsed.name) {
+            let parsedArgs: Record<string, unknown> = {};
+            if (typeof parsed.arguments === 'string') {
+              try {
+                parsedArgs = JSON.parse(parsed.arguments);
+              } catch {
+                parsedArgs = {};
+              }
+            } else if (parsed.arguments && typeof parsed.arguments === 'object') {
+              parsedArgs = parsed.arguments;
+            }
+            const normalizedArgs = this.normalizeToolArgs(parsed.name, parsedArgs);
+            toolCalls.push({
+              id: `call_${Math.random().toString(36).slice(2, 9)}`,
+              function: {
+                name: parsed.name,
+                arguments: JSON.stringify(normalizedArgs),
+              },
+            });
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+      }
+    }
+
+    // Strip tool call markup from human-visible text
+    const cleanText = rawText
+      .replace(/\]<\]minimax\[>\[?<tool_call>[\s\S]*?\]<\]minimax\[>\[?<\/tool_call>/g, '')
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+      .replace(/<invoke\s+name=["']?[^"'\s>]+["']?>[\s\S]*?<\/invoke>/g, '')
+      .replace(/\]<\]minimax\[>\[?/g, '')
+      .trim();
+
+    return { cleanText, toolCalls };
+  }
+
   private toGeminiResponse(
     completion: OpenAI.Chat.Completions.ChatCompletion,
     messages?: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
@@ -283,12 +397,12 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       choice.message.content ||
       (choice.message as unknown as { reasoning_content?: string }).reasoning_content ||
       (choice.message as unknown as { reasoning?: string }).reasoning;
-    if (rawContent) {
-      parts.push({ text: rawContent });
-    }
 
-    // Tool calls
-    if (choice.message.tool_calls) {
+    // Tool calls from native OpenAI choice.message.tool_calls
+    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
+      if (rawContent) {
+        parts.push({ text: rawContent });
+      }
       for (const tc of choice.message.tool_calls) {
         let args: Record<string, unknown> = {};
         try {
@@ -297,14 +411,39 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         } catch {
           args = {};
         }
+        const fnName = (tc as { function?: { name?: string } }).function?.name ?? '';
         parts.push({
           functionCall: {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-            name: (tc as { function?: { name?: string } }).function?.name ?? '',
-            args,
+            name: fnName,
+            args: this.normalizeToolArgs(fnName, args),
             ...((tc as { id?: string }).id ? { id: (tc as { id?: string }).id } : {}),
           },
         });
+      }
+    } else if (rawContent) {
+      // Check for text-based embedded tool calls (MiniMax, GLM, DeepSeek XML style)
+      const parsed = this.parseEmbeddedTextToolCalls(rawContent);
+      if (parsed.toolCalls.length > 0) {
+        if (parsed.cleanText) {
+          parts.push({ text: parsed.cleanText });
+        }
+        for (const tc of parsed.toolCalls) {
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(tc.function.arguments || '{}');
+          } catch {
+            args = {};
+          }
+          parts.push({
+            functionCall: {
+              name: tc.function.name,
+              args: this.normalizeToolArgs(tc.function.name, args),
+              ...(tc.id ? { id: tc.id } : {}),
+            },
+          });
+        }
+      } else {
+        parts.push({ text: rawContent });
       }
     }
 
@@ -692,18 +831,25 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
             if (textDelta) {
               accumulatedText += textDelta;
             }
-            yield {
-              candidates: [
-                {
-                  content: {
-                    role: 'model',
-                    parts: textDelta ? [{ text: textDelta }] : [],
+            const isInsideEmbeddedToolCall =
+              accumulatedText.includes(']<]minimax[>') ||
+              accumulatedText.includes('<tool_call>') ||
+              accumulatedText.includes('<invoke');
+
+            if (!isInsideEmbeddedToolCall) {
+              yield {
+                candidates: [
+                  {
+                    content: {
+                      role: 'model',
+                      parts: textDelta ? [{ text: textDelta }] : [],
+                    },
+                    ...(chunkFinishReason && { finishReason: chunkFinishReason }),
+                    index: 0,
                   },
-                  ...(chunkFinishReason && { finishReason: chunkFinishReason }),
-                  index: 0,
-                },
-              ],
-            } as unknown as GenerateContentResponse;
+                ],
+              } as unknown as GenerateContentResponse;
+            }
           }
 
           if (delta?.tool_calls) {
@@ -755,6 +901,15 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         };
       };
 
+      // Check if text contained embedded tool calls (e.g. MiniMax, GLM, DeepSeek XML/JSON style)
+      if (accumulatedToolCalls.length === 0 && accumulatedText) {
+        const parsed = self.parseEmbeddedTextToolCalls(accumulatedText);
+        if (parsed.toolCalls.length > 0) {
+          accumulatedToolCalls = parsed.toolCalls;
+          accumulatedText = parsed.cleanText;
+        }
+      }
+
       // If there were tool calls, emit a final response with them and usageMetadata
       if (accumulatedToolCalls.length > 0) {
         const parts: GeminiPart[] = [];
@@ -766,10 +921,11 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           } catch {
             args = {};
           }
+          const fnName = tc.function.name;
           parts.push({
             functionCall: {
-              name: tc.function.name,
-              args,
+              name: fnName,
+              args: self.normalizeToolArgs(fnName, args),
               ...(tc.id ? { id: tc.id } : {}),
             },
           });

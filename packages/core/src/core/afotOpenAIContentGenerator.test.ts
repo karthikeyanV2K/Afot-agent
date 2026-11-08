@@ -152,4 +152,27 @@ describe('AfotOpenAIContentGenerator', () => {
     expect(finalChunk.usageMetadata?.candidatesTokenCount).toBeGreaterThan(0);
     expect(finalChunk.usageMetadata?.totalTokenCount).toBeGreaterThan(0);
   });
+
+  it('correctly parses text-based embedded tool calls from MiniMax and XML-style models', async () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'minimaxai/minimax-m3.1-flash');
+    const raw = `I will read the files now.]<]minimax[>[<tool_call>
+]<]minimax[>[<invoke name="read_file">]<]minimax[>[<path>X:\\Afot-os\\AGENTS.md]<]minimax[>[</path>]<]minimax[>[</invoke>
+]<]minimax[>[<invoke name="read_file">]<]minimax[>[<path>X:\\Afot-os\\README.md]<]minimax[>[</path>]<]minimax[>[</invoke>
+]<]minimax[>[</tool_call>`;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = (generator as any).parseEmbeddedTextToolCalls(raw);
+    expect(parsed.cleanText).toBe('I will read the files now.');
+    expect(parsed.toolCalls).toHaveLength(2);
+    expect(parsed.toolCalls[0].function.name).toBe('read_file');
+    expect(JSON.parse(parsed.toolCalls[0].function.arguments)).toEqual({
+      file_path: 'X:\\Afot-os\\AGENTS.md',
+      path: 'X:\\Afot-os\\AGENTS.md',
+    });
+    expect(parsed.toolCalls[1].function.name).toBe('read_file');
+    expect(JSON.parse(parsed.toolCalls[1].function.arguments)).toEqual({
+      file_path: 'X:\\Afot-os\\README.md',
+      path: 'X:\\Afot-os\\README.md',
+    });
+  });
 });
