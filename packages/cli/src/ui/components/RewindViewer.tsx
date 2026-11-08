@@ -37,7 +37,7 @@ interface RewindViewerProps {
 
 const MAX_LINES_PER_BOX = 2;
 
-const getCleanedRewindText = (userPrompt: MessageRecord): string => {
+export const getCleanedRewindText = (userPrompt: MessageRecord): string => {
   const contentToUse = userPrompt.displayContent || userPrompt.content;
   const originalUserText = contentToUse ? partToString(contentToUse) : '';
   return userPrompt.displayContent

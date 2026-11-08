@@ -76,12 +76,51 @@ Launch the interactive model switcher anytime inside the TUI:
 
 ---
 
+## 🚀 Global Installation & Executable
+
+You can install `afot` globally across your system so you can launch it from any directory or terminal:
+
+```bash
+# Link the CLI binary globally
+cd packages/cli
+npm link
+
+# Now run AFOT CLI from any folder:
+afot
+afot --help
+afot -p "Explain this project structure"
+```
+
+Alternatively, use the built-in bin wrapper in the root directory:
+```bash
+./bin/afot
+# Or on Windows:
+.\bin\afot.cmd
+```
+
+---
+
+## ⚡ Key Highlights & Features
+
+- **Interactive In-TUI Diffs with Instant Hotkeys**: Review code modifications with syntax highlighting and diff stats (`+added / -removed`), and act immediately without navigation:
+  - <kbd>y</kbd> : Accept and apply changes once
+  - <kbd>n</kbd> : Reject changes / suggest edits (<kbd>Esc</kbd>)
+  - <kbd>a</kbd> : Approve for the remainder of the session
+  - <kbd>e</kbd> : Open in your configured external editor
+- **Instant One-Step Undo (`/undo`)**: Reverts both the last conversation turn and all file modifications made by the model in that turn with a single command. To open the interactive turn history picker, run `/undo list` or `/rewind`.
+- **Multi-Provider AI Engine**: Native support for OpenCode, Nvidia API Catalog, OpenRouter, Groq, DeepSeek, Google Gemini, Ollama, and custom OpenAI-compatible endpoints with dynamic failover and token counting.
+- **Zero Background Hiding**: Full real-time execution outputs rendered directly in the terminal interface.
+
+---
+
 ## ⌨️ Useful Commands
 
 Inside the AFOT CLI session:
 
 | Command | Action |
 | :--- | :--- |
+| `/undo` | Immediately rollback the last turn and revert all file edits |
+| `/rewind` | Jump back to any previous conversation turn interactively |
 | `/model manage` | Open the interactive model catalog and provider selector |
 | `/skills list` | View available agent skills |
 | `/settings` | Open the AFOT CLI settings interface |

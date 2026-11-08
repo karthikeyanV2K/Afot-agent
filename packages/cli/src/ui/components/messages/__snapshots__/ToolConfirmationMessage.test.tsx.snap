@@ -1,23 +1,25 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`ToolConfirmationMessage > enablePermanentToolApproval setting > should show "Allow for all future sessions" when trusted 1`] = `
-"╭──────────────────────────────────────────────────────────────────────────────╮
+"Diff: test.txt  +0 / -0            [y] Accept  [n] Reject  [a] Session  [e] Edit
+
+╭──────────────────────────────────────────────────────────────────────────────╮
 │                                                                              │
 │  No changes detected.                                                        │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 Apply this change?
 
-● 1. Allow once                                                                   
-  2. Allow for this session
-  3. Allow for this file in all future sessions ~/.gemini/policies/auto-saved.toml
-  4. Modify with external editor
-  5. No, suggest changes (esc)
+● 1. [y] Allow once                                                             
+  2. [a] Allow for this session
+  3. Allow for this file in all future sessions ~/.afot/policies/auto-saved.toml
+  4. [e] Modify with external editor
+  5. [n] No, reject / suggest changes (esc)
 "
 `;
 
 exports[`ToolConfirmationMessage > height allocation and layout > should expand to available height for large edit diffs 1`] = `
-"╭──────────────────────────────────────────────────────────────────────────────╮
+"... first 3 lines hidden (Ctrl+O to show) ...
 │ ... 10 hidden (Ctrl+O) ...                                                   │
 │  6 - const oldLine6 = true;                                                  │
 │  6 + const newLine6 = true;                                                  │
@@ -52,10 +54,10 @@ exports[`ToolConfirmationMessage > height allocation and layout > should expand 
 ╰──────────────────────────────────────────────────────────────────────────────╯
 Apply this change?
 
-● 1. Allow once                 
-  2. Allow for this session
-  3. Modify with external editor
-  4. No, suggest changes (esc)
+● 1. [y] Allow once                        
+  2. [a] Allow for this session
+  3. [e] Modify with external editor
+  4. [n] No, reject / suggest changes (esc)
 "
 `;
 
@@ -168,31 +170,35 @@ Allow execution of MCP tool "testtool" from server "testserver"?
 `;
 
 exports[`ToolConfirmationMessage > with folder trust > 'for edit confirmations' > should NOT show "allow always" when folder is untrusted 1`] = `
-"╭──────────────────────────────────────────────────────────────────────────────╮
+"Diff: test.txt  +0 / -0            [y] Accept  [n] Reject  [a] Session  [e] Edit
+
+╭──────────────────────────────────────────────────────────────────────────────╮
 │                                                                              │
 │  No changes detected.                                                        │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 Apply this change?
 
-● 1. Allow once                 
-  2. Modify with external editor
-  3. No, suggest changes (esc)
+● 1. [y] Allow once                        
+  2. [e] Modify with external editor
+  3. [n] No, reject / suggest changes (esc)
 "
 `;
 
 exports[`ToolConfirmationMessage > with folder trust > 'for edit confirmations' > should show "allow always" when folder is trusted 1`] = `
-"╭──────────────────────────────────────────────────────────────────────────────╮
+"Diff: test.txt  +0 / -0            [y] Accept  [n] Reject  [a] Session  [e] Edit
+
+╭──────────────────────────────────────────────────────────────────────────────╮
 │                                                                              │
 │  No changes detected.                                                        │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 Apply this change?
 
-● 1. Allow once                 
-  2. Allow for this session
-  3. Modify with external editor
-  4. No, suggest changes (esc)
+● 1. [y] Allow once                        
+  2. [a] Allow for this session
+  3. [e] Modify with external editor
+  4. [n] No, reject / suggest changes (esc)
 "
 `;
 

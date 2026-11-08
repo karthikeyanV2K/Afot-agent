@@ -90,6 +90,7 @@
     "cross-spawn": "7.0.6"
   },
   "bin": {
+    "afot": "packages/cli/dist/index.js",
     "gemini": "bundle/gemini.js"
   },
   "files": [

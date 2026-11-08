@@ -259,6 +259,28 @@ export const ToolConfirmationMessage: React.FC<
       if (keyMatchers[Command.QUIT](key)) {
         return false;
       }
+
+      // AFOT Quick Key Actions for Interactive Diff & Tool Confirmation
+      if (key.name === 'y' || key.sequence === 'y' || key.sequence === 'Y') {
+        handleConfirm(ToolConfirmationOutcome.ProceedOnce);
+        return true;
+      }
+      if (key.name === 'n' || key.sequence === 'n' || key.sequence === 'N') {
+        setIsCancelling(true);
+        return true;
+      }
+      if (key.name === 'a' || key.sequence === 'a' || key.sequence === 'A') {
+        handleConfirm(ToolConfirmationOutcome.ProceedAlways);
+        return true;
+      }
+      if (
+        (key.name === 'e' || key.sequence === 'e' || key.sequence === 'E') &&
+        confirmationDetails.type === 'edit'
+      ) {
+        handleConfirm(ToolConfirmationOutcome.ModifyWithEditor);
+        return true;
+      }
+
       return false;
     },
     { isActive: isFocused, priority: true },
@@ -289,13 +311,13 @@ export const ToolConfirmationMessage: React.FC<
     if (confirmationDetails.type === 'edit') {
       if (!confirmationDetails.isModifying) {
         options.push({
-          label: 'Allow once',
+          label: '[y] Allow once',
           value: ToolConfirmationOutcome.ProceedOnce,
           key: 'Allow once',
         });
         if (isTrustedFolder && !confirmationDetails.isBuildFile) {
           options.push({
-            label: 'Allow for this session',
+            label: '[a] Allow for this session',
             value: ToolConfirmationOutcome.ProceedAlways,
             key: 'Allow for this session',
           });
@@ -311,14 +333,14 @@ export const ToolConfirmationMessage: React.FC<
         // the IDE is actually capable of showing a diff (connected).
         if (!config.getIdeMode() || !isDiffingEnabled) {
           options.push({
-            label: 'Modify with external editor',
+            label: '[e] Modify with external editor',
             value: ToolConfirmationOutcome.ModifyWithEditor,
             key: 'Modify with external editor',
           });
         }
 
         options.push({
-          label: 'No, suggest changes (esc)',
+          label: '[n] No, reject / suggest changes (esc)',
           value: ToolConfirmationOutcome.Cancel,
           key: 'No, suggest changes (esc)',
         });
@@ -692,8 +714,28 @@ export const ToolConfirmationMessage: React.FC<
       if (confirmationDetails.type === 'edit') {
         if (!confirmationDetails.isModifying) {
           question = `Apply this change?`;
+          const diffStr = confirmationDetails.fileDiff || '';
+          const addedLinesCount = (diffStr.match(/^\+[^+]/gm) || []).length;
+          const removedLinesCount = (diffStr.match(/^-[^-]/gm) || []).length;
+
           bodyContent = (
             <>
+              <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+                <Box flexDirection="row">
+                  <Text bold color={theme.text.accent}>
+                    Diff: {sanitizeForDisplay(confirmationDetails.fileName)}
+                  </Text>
+                  <Box marginLeft={2}>
+                    <Text color="#22c55e">+{addedLinesCount}</Text>
+                    <Text color={theme.text.secondary}> / </Text>
+                    <Text color="#ef4444">-{removedLinesCount}</Text>
+                  </Box>
+                </Box>
+                <Text color={theme.text.secondary}>
+                  [y] Accept  [n] Reject  [a] Session  [e] Edit
+                </Text>
+              </Box>
+
               <Box
                 borderStyle="round"
                 borderColor={theme.border.default}
@@ -1008,7 +1050,7 @@ export const ToolConfirmationMessage: React.FC<
           <Text color={titleColor} wrap="truncate">
             {item.label}{' '}
             <Text color={theme.text.secondary}>
-              ~/.gemini/policies/auto-saved.toml
+              ~/.afot/policies/auto-saved.toml
             </Text>
           </Text>
         );
