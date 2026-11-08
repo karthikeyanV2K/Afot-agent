@@ -76,31 +76,37 @@ Launch the interactive model switcher anytime inside the TUI:
 
 ---
 
-## 🚀 Global Installation & Executable
+## 🚀 Installation & Getting Started
 
-You can install `afot` globally via npm so you can launch it from any directory or terminal:
+### Install globally via NPM
 
 ```bash
-npm install -g afot
+npm install -g afot-cli
 ```
 
-Or run directly without installing:
+Once installed, launch AFOT CLI from anywhere in your terminal:
 
 ```bash
-npx afot
-```
-
-From source or local development:
-
-```bash
-# Link the CLI binary globally
-cd packages/cli
-npm link
-
-# Now run AFOT CLI from any folder:
 afot
-afot --help
-afot -p "Explain this project structure"
+```
+
+### Or run directly with NPX (zero install)
+
+```bash
+npx afot-cli
+```
+
+### Install from Source
+
+```bash
+git clone https://github.com/karthikeyanV2K/Afot-agent.git
+cd Afot-agent
+npm install
+npm run build
+cd packages/cli && npm link
+
+# Now run:
+afot
 ```
 
 Alternatively, use the built-in bin wrapper in the root directory:
