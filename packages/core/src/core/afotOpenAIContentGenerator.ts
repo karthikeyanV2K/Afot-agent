@@ -19,13 +19,14 @@ import OpenAI from 'openai';
 import type {
   ContentGenerator,
 } from './contentGenerator.js';
-import type {
-  GenerateContentParameters,
+import {
   GenerateContentResponse,
-  CountTokensParameters,
-  CountTokensResponse,
-  EmbedContentParameters,
-  EmbedContentResponse,
+  type GenerateContentParameters,
+  type CountTokensParameters,
+  type CountTokensResponse,
+  type EmbedContentParameters,
+  type EmbedContentResponse,
+  type FunctionCall,
 } from '@google/genai';
 import type { LlmRole } from '../telemetry/llmRole.js';
 import {
@@ -206,9 +207,6 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
   private toOpenAITools(
     request: GenerateContentParameters,
   ): OpenAI.Chat.Completions.ChatCompletionTool[] | undefined {
-    if (this.providerName === 'nvidia') {
-      return undefined;
-    }
     const config = request.config as
       | { tools?: Array<{ functionDeclarations?: GeminiFunctionDeclaration[] }> }
       | undefined;
@@ -390,15 +388,46 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     return { cleanText, toolCalls };
   }
 
+  private createGeminiResponse(data: {
+    candidates: Array<{
+      content: { role: string; parts: GeminiPart[] };
+      finishReason?: string;
+      index: number;
+    }>;
+    usageMetadata?: GenerateContentResponse['usageMetadata'];
+    modelVersion?: string;
+  }): GenerateContentResponse {
+    const resp = Object.assign(new GenerateContentResponse(), data);
+
+    const firstCandidateParts = data.candidates?.[0]?.content?.parts ?? [];
+    const fnCalls: FunctionCall[] = [];
+    for (const part of firstCandidateParts) {
+      if (part.functionCall) {
+        fnCalls.push(part.functionCall);
+      }
+    }
+
+    if (fnCalls.length > 0) {
+      Object.defineProperty(resp, 'functionCalls', {
+        value: fnCalls,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    }
+
+    return resp;
+  }
+
   private toGeminiResponse(
     completion: OpenAI.Chat.Completions.ChatCompletion,
     messages?: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   ): GenerateContentResponse {
     const choice = completion.choices[0];
     if (!choice) {
-      return {
+      return this.createGeminiResponse({
         candidates: [],
-      } as unknown as GenerateContentResponse;
+      });
     }
 
     const parts: GeminiPart[] = [];
@@ -475,7 +504,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       totalTokens = promptTokens + candidatesTokens;
     }
 
-    return {
+    return this.createGeminiResponse({
       candidates: [
         {
           content: {
@@ -493,7 +522,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         cachedContentTokenCount: cachedTokens,
       },
       modelVersion: completion.model || undefined,
-    } as unknown as GenerateContentResponse;
+    });
   }
 
   private mapFinishReason(
@@ -962,6 +991,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       let completionTokensFromStream: number | undefined;
       let totalTokensFromStream: number | undefined;
       let cachedTokensFromStream: number | undefined;
+      let wasTextStreamed = false;
 
       try {
         for await (const chunk of stream) {
@@ -992,36 +1022,30 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
             (delta as unknown as { reasoning_content?: string })?.reasoning_content ||
             (delta as unknown as { reasoning?: string })?.reasoning;
 
-          const chunkFinishReason = choice?.finish_reason
-            ? self.mapFinishReason(choice.finish_reason)
-            : undefined;
-
           if (choice?.finish_reason) {
             finishReason = choice.finish_reason;
           }
 
-          if (textDelta || chunkFinishReason) {
-            if (textDelta) {
-              accumulatedText += textDelta;
-            }
+          if (textDelta) {
+            accumulatedText += textDelta;
             const isInsideEmbeddedToolCall =
               accumulatedText.includes(']<]minimax[>') ||
               accumulatedText.includes('<tool_call>') ||
               accumulatedText.includes('<invoke');
 
             if (!isInsideEmbeddedToolCall) {
-              yield {
+              wasTextStreamed = true;
+              yield self.createGeminiResponse({
                 candidates: [
                   {
                     content: {
                       role: 'model',
-                      parts: textDelta ? [{ text: textDelta }] : [],
+                      parts: [{ text: textDelta }],
                     },
-                    ...(chunkFinishReason && { finishReason: chunkFinishReason }),
                     index: 0,
                   },
                 ],
-              } as unknown as GenerateContentResponse;
+              });
             }
           }
 
@@ -1034,6 +1058,9 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
                   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
                   function: { name: (tc as { function?: { name?: string } }).function?.name ?? '', arguments: '' },
                 };
+              }
+              if (tc.id) {
+                accumulatedToolCalls[idx].id = tc.id;
               }
               // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
               const tcFunc = (tc as { function?: { name?: string; arguments?: string } }).function;
@@ -1083,11 +1110,15 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         }
       }
 
-      // If there were tool calls, emit a final response with them and usageMetadata
-      if (accumulatedToolCalls.length > 0) {
+      const validToolCalls = accumulatedToolCalls.filter(Boolean);
+
+      // If there were tool calls, emit a final response with them, functionCalls property, and usageMetadata
+      if (validToolCalls.length > 0) {
         const parts: GeminiPart[] = [];
-        if (accumulatedText) parts.push({ text: accumulatedText });
-        for (const tc of accumulatedToolCalls) {
+        if (accumulatedText && !wasTextStreamed) {
+          parts.push({ text: accumulatedText });
+        }
+        for (const tc of validToolCalls) {
           let args: Record<string, unknown> = {};
           try {
             args = JSON.parse(tc.function.arguments || '{}');
@@ -1103,7 +1134,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
             },
           });
         }
-        yield {
+        yield self.createGeminiResponse({
           candidates: [
             {
               content: { role: 'model', parts },
@@ -1112,19 +1143,23 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
             },
           ],
           usageMetadata: computeFinalUsage(),
-        } as unknown as GenerateContentResponse;
+        });
       } else {
         // Emit final closing response with finishReason and usageMetadata
-        yield {
+        const parts: GeminiPart[] = [];
+        if (accumulatedText && !wasTextStreamed) {
+          parts.push({ text: accumulatedText });
+        }
+        yield self.createGeminiResponse({
           candidates: [
             {
-              content: { role: 'model', parts: [] },
+              content: { role: 'model', parts },
               finishReason: self.mapFinishReason(finishReason ?? 'stop'),
               index: 0,
             },
           ],
           usageMetadata: computeFinalUsage(),
-        } as unknown as GenerateContentResponse;
+        });
       }
     })();
   }

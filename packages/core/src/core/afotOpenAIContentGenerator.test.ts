@@ -241,4 +241,174 @@ describe('AfotOpenAIContentGenerator', () => {
     expect(isRetryable({ status: 404 })).toBe(false);
     expect(isRetryable({ status: 401 })).toBe(false);
   });
+
+  it('emits functionCalls property on GenerateContentResponse in generateContentStream when model calls tools', async () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'z-ai/glm-5.3-flash');
+
+    const mockStream = (async function* () {
+      yield {
+        id: 'chunk-1',
+        choices: [
+          {
+            index: 0,
+            delta: { content: "I'll analyze the codebase." },
+            finish_reason: null,
+          },
+        ],
+      };
+      yield {
+        id: 'chunk-2',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_123',
+                  type: 'function',
+                  function: { name: 'list_directory', arguments: '{"path":".' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      };
+      yield {
+        id: 'chunk-3',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: '"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      };
+    })();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (generator as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue(mockStream),
+        },
+      },
+    };
+
+    const req: GenerateContentParameters = {
+      model: 'z-ai/glm-5.3-flash',
+      contents: [{ role: 'user', parts: [{ text: 'analize full code base' }] }],
+    };
+
+    const stream = await generator.generateContentStream(req, 'prompt-tools', LlmRole.MAIN);
+    const chunks = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.length).toBe(2);
+    // Chunk 0: text streamed delta
+    expect(chunks[0].candidates?.[0]?.content?.parts?.[0]?.text).toBe("I'll analyze the codebase.");
+    expect(chunks[0].functionCalls).toBeUndefined();
+
+    // Chunk 1: final tool call chunk
+    const toolChunk = chunks[1];
+    expect(toolChunk.functionCalls).toBeDefined();
+    expect(toolChunk.functionCalls).toHaveLength(1);
+    expect(toolChunk.functionCalls?.[0]?.id).toBe('call_123');
+    expect(toolChunk.functionCalls?.[0]?.name).toBe('list_directory');
+    expect(toolChunk.functionCalls?.[0]?.args).toEqual({ path: '.' });
+
+    // Ensure streamed text is not duplicated in the final tool call chunk
+    const hasDuplicateText = toolChunk.candidates?.[0]?.content?.parts?.some((p) => p.text);
+    expect(hasDuplicateText).toBeFalsy();
+  });
+
+  it('emits functionCalls property in non-streaming generateContent when model calls tools', async () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'z-ai/glm-5.3-flash');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (generator as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            id: 'comp-1',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: 'Reading file...',
+                  tool_calls: [
+                    {
+                      id: 'call_456',
+                      type: 'function',
+                      function: {
+                        name: 'read_file',
+                        arguments: JSON.stringify({ path: 'README.md' }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 15,
+              total_tokens: 25,
+            },
+          }),
+        },
+      },
+    };
+
+    const req: GenerateContentParameters = {
+      model: 'z-ai/glm-5.3-flash',
+      contents: [{ role: 'user', parts: [{ text: 'read README.md' }] }],
+    };
+
+    const response = await generator.generateContent(req, 'prompt-non-stream', LlmRole.MAIN);
+    expect(response.functionCalls).toBeDefined();
+    expect(response.functionCalls).toHaveLength(1);
+    expect(response.functionCalls?.[0]?.id).toBe('call_456');
+    expect(response.functionCalls?.[0]?.name).toBe('read_file');
+    expect(response.functionCalls?.[0]?.args).toEqual({
+      path: 'README.md',
+      file_path: 'README.md',
+    });
+  });
+
+  it('provides tool definitions in toOpenAITools for both nvidia and openrouter', () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'nvidia/nemotron-3.5-super-vl-120b-a12b');
+    const req = {
+      config: {
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: 'list_directory',
+                description: 'Lists files in directory',
+                parametersJsonSchema: { type: 'object', properties: { path: { type: 'string' } } },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tools = (generator as any).toOpenAITools(req);
+    expect(tools).toBeDefined();
+    expect(tools).toHaveLength(1);
+    expect(tools[0].function.name).toBe('list_directory');
+  });
 });
