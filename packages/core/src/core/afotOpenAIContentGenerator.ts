@@ -158,9 +158,16 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           const respId = (resp.functionResponse as unknown as { id?: string })?.id;
           let toolCallId: string | undefined;
 
-          // 1. Match by explicit id if present
+          // 1. Match by explicit id if present (exact match or with/without tool prefix)
           if (respId) {
-            const matchIdx = pendingCalls.findIndex((c) => c.id === respId);
+            const matchIdx = pendingCalls.findIndex(
+              (c) =>
+                c.id === respId ||
+                c.id.endsWith(`_${respId}`) ||
+                respId.endsWith(`_${c.id}`) ||
+                c.id.endsWith(respId) ||
+                respId.endsWith(c.id),
+            );
             if (matchIdx !== -1) {
               toolCallId = pendingCalls[matchIdx].id;
               pendingCalls.splice(matchIdx, 1);
