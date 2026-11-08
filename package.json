@@ -17,6 +17,8 @@
     "sandboxImageUri": "us-docker.pkg.dev/gemini-code-dev/gemini-cli/sandbox:0.69.0-nightly.20261104.g89e9d25d6"
   },
   "scripts": {
+    "release:npm": "node scripts/publish-afot.js",
+    "release:npm:publish": "node scripts/publish-afot.js --publish",
     "start": "cross-env NODE_ENV=development node scripts/start.js",
     "start:prod": "cross-env NODE_ENV=production node scripts/start.js",
     "start:a2a-server": "CODER_AGENT_PORT=41242 npm run start --workspace @google/gemini-cli-a2a-server",
