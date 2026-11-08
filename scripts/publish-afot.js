@@ -86,7 +86,9 @@ try {
 
   if (process.argv.includes('--publish')) {
     console.log('--- 5. Publishing to npm registry ---');
-    execSync('npm publish --access public', { stdio: 'inherit', cwd: cliDir });
+    const otpArg = process.argv.find((arg) => arg.startsWith('--otp='));
+    const otpFlag = otpArg ? ` ${otpArg}` : '';
+    execSync(`npm publish --access public${otpFlag}`, { stdio: 'inherit', cwd: cliDir });
     console.log('🎉 Successfully published afot to npm registry!');
   } else {
     console.log('\nDry run complete! Run with --publish to publish live to npm.');
