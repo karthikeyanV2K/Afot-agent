@@ -560,44 +560,53 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
     try {
       try {
-        stream = await this.client.chat.completions.create({
-          model: modelToUse,
-          messages,
-          stream: true,
-          stream_options: { include_usage: true },
-          ...(tools && { tools }),
-          ...(config?.temperature !== undefined && {
-            temperature: config.temperature,
-          }),
-          max_tokens: config?.maxOutputTokens
-            ? Math.min(config.maxOutputTokens, 8192)
-            : 8192,
-          ...(config?.topP !== undefined && { top_p: config.topP }),
-        });
+        stream = await this.client.chat.completions.create(
+          {
+            model: modelToUse,
+            messages,
+            stream: true,
+            stream_options: { include_usage: true },
+            ...(tools && { tools }),
+            ...(config?.temperature !== undefined && {
+              temperature: config.temperature,
+            }),
+            max_tokens: config?.maxOutputTokens
+              ? Math.min(config.maxOutputTokens, 8192)
+              : 8192,
+            ...(config?.topP !== undefined && { top_p: config.topP }),
+          },
+          { timeout: 30000 },
+        );
       } catch (streamOptErr: unknown) {
-        stream = await this.client.chat.completions.create({
-          model: modelToUse,
-          messages,
-          stream: true,
-          ...(tools && { tools }),
-          ...(config?.temperature !== undefined && {
-            temperature: config.temperature,
-          }),
-          max_tokens: config?.maxOutputTokens
-            ? Math.min(config.maxOutputTokens, 8192)
-            : 8192,
-          ...(config?.topP !== undefined && { top_p: config.topP }),
-        });
+        stream = await this.client.chat.completions.create(
+          {
+            model: modelToUse,
+            messages,
+            stream: true,
+            ...(tools && { tools }),
+            ...(config?.temperature !== undefined && {
+              temperature: config.temperature,
+            }),
+            max_tokens: config?.maxOutputTokens
+              ? Math.min(config.maxOutputTokens, 8192)
+              : 8192,
+            ...(config?.topP !== undefined && { top_p: config.topP }),
+          },
+          { timeout: 30000 },
+        );
       }
     } catch (err: unknown) {
       const errObj = err as { status?: number; message?: string; error?: { message?: string } };
       const msg = errObj?.error?.message || errObj?.message || '';
       const isUnavailable =
         errObj?.status === 400 && /model is unavailable/i.test(msg);
-      const isNotFound = errObj?.status === 404 || errObj?.status === 410;
+      const isNotFound =
+        errObj?.status === 404 ||
+        errObj?.status === 410 ||
+        /timeout|timed out|abort/i.test(msg);
 
       if ((isUnavailable || isNotFound) && this.providerName === 'nvidia') {
-        const fallback = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+        const fallback = 'nvidia/nemotron-3-ultra-550b-a55b';
         if (modelToUse !== fallback) {
           debugLogger.log(
             `Model ${modelToUse} unavailable on Nvidia. Falling back to ${fallback}`,

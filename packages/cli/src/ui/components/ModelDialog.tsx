@@ -32,6 +32,7 @@ import {
   resolveOpenCodeProvider,
   fetchAfotProviderModels,
   readAfotConfig,
+  readAfotAuthFile,
   setAfotDefaultProvider,
   setAfotProviderDefaultModel,
   getAfotRecentModels,
@@ -225,12 +226,26 @@ function AfotUnifiedModelDialog({
 
   const allItems = useMemo(() => {
     const afotConf = readAfotConfig();
+    const authFile = readAfotAuthFile() ?? {};
+    const authenticatedProviders = new Set<string>();
+    for (const [k, v] of Object.entries(authFile)) {
+      if (!v) continue;
+      if (v.type === 'api' && (v as { key?: string }).key?.trim()) {
+        authenticatedProviders.add(k);
+      } else if (v.type === 'oauth' && (v as { access_token?: string }).access_token?.trim()) {
+        authenticatedProviders.add(k);
+      }
+    }
+
     const recents = getAfotRecentModels();
     const items: UnifiedModelItem[] = [];
     const recentKeySet = new Set<string>();
 
-    // 1. Build Recent section (only if user has actual recent models)
+    // 1. Build Recent section (filtered to connected providers if any exist)
     for (const r of recents) {
+      if (authenticatedProviders.size > 0 && !authenticatedProviders.has(r.provider)) {
+        continue;
+      }
       const name = formatModelName(r.id);
       const pName = formatProviderName(r.provider);
       const isFree = isFreeModel(r.id, r.provider);
@@ -253,72 +268,99 @@ function AfotUnifiedModelDialog({
       recentKeySet.add(`${r.provider}:${r.id}`);
     }
 
-    // 2. OpenCode provider section (strictly verified free models)
-    const rawOpencode =
-      liveOpencodeModels.length > 0
-        ? liveOpencodeModels
-        : (afotConf?.providers?.['opencode']?.models ?? OPENCODE_FREE_MODELS);
-    const opencodeModels = rawOpencode.filter(
-      (m) =>
-        OPENCODE_FREE_MODELS.includes(m) ||
-        m.includes('-free') ||
-        m === 'big-pickle',
-    );
+    // Helper to add OpenCode models
+    const addOpencodeModels = () => {
+      const rawOpencode =
+        liveOpencodeModels.length > 0
+          ? liveOpencodeModels
+          : (afotConf?.providers?.['opencode']?.models ?? OPENCODE_FREE_MODELS);
+      const opencodeModels = rawOpencode.filter(
+        (m) =>
+          OPENCODE_FREE_MODELS.includes(m) ||
+          m.includes('-free') ||
+          m === 'big-pickle',
+      );
 
-    for (const m of opencodeModels) {
-      if (recentKeySet.has(`opencode:${m}`)) continue;
-      const name = formatModelName(m);
-      const isFree = isFreeModel(m, 'opencode');
-      const isActiveModel =
-        (m === currentModel ||
-          m.endsWith(currentModel) ||
-          currentModel.endsWith(m)) &&
-        activeProvider === 'opencode';
+      for (const m of opencodeModels) {
+        if (recentKeySet.has(`opencode:${m}`)) continue;
+        const name = formatModelName(m);
+        const isFree = isFreeModel(m, 'opencode');
+        const isActiveModel =
+          (m === currentModel ||
+            m.endsWith(currentModel) ||
+            currentModel.endsWith(m)) &&
+          activeProvider === 'opencode';
 
-      items.push({
-        id: m,
-        name,
-        displayName: name,
-        providerKey: 'opencode',
-        providerName: 'OpenCode',
-        section: 'OpenCode',
-        isFree,
-        isActiveModel,
-      });
+        items.push({
+          id: m,
+          name,
+          displayName: name,
+          providerKey: 'opencode',
+          providerName: 'OpenCode',
+          section: 'OpenCode',
+          isFree,
+          isActiveModel,
+        });
+      }
+    };
+
+    // Helper to add another provider's models
+    const addProviderModels = (pKey: string) => {
+      const pConfig = afotConf?.providers?.[pKey];
+      if (!pConfig) return;
+      const providerModels =
+        liveProviderModels[pKey]?.length
+          ? liveProviderModels[pKey]
+          : (pConfig.models ?? []);
+      if (providerModels.length === 0) return;
+      const pName = formatProviderName(pKey);
+
+      for (const m of providerModels) {
+        if (recentKeySet.has(`${pKey}:${m}`)) continue;
+        const name = formatModelName(m);
+        const isFree = isFreeModel(m, pKey);
+        const isActiveModel =
+          (m === currentModel ||
+            m.endsWith(currentModel) ||
+            currentModel.endsWith(m)) &&
+          activeProvider === pKey;
+
+        items.push({
+          id: m,
+          name,
+          displayName: name,
+          providerKey: pKey,
+          providerName: pName,
+          section: pName,
+          isFree,
+          isActiveModel,
+        });
+      }
+    };
+
+    // 2. Prioritize active provider first (right under Recent)
+    if (activeProvider === 'opencode') {
+      if (authenticatedProviders.size === 0 || authenticatedProviders.has('opencode')) {
+        addOpencodeModels();
+      }
+    } else if (activeProvider && authenticatedProviders.has(activeProvider)) {
+      addProviderModels(activeProvider);
     }
 
-    // 3. Other configured providers
-    if (afotConf?.providers) {
-      for (const [pKey, pConfig] of Object.entries(afotConf.providers)) {
-        if (pKey === 'opencode') continue;
-        const providerModels =
-          liveProviderModels[pKey]?.length
-            ? liveProviderModels[pKey]
-            : (pConfig.models ?? []);
-        if (providerModels.length === 0) continue;
-        const pName = formatProviderName(pKey);
-
-        for (const m of providerModels) {
-          if (recentKeySet.has(`${pKey}:${m}`)) continue;
-          const name = formatModelName(m);
-          const isFree = isFreeModel(m, pKey);
-          const isActiveModel =
-            (m === currentModel ||
-              m.endsWith(currentModel) ||
-              currentModel.endsWith(m)) &&
-            activeProvider === pKey;
-
-          items.push({
-            id: m,
-            name,
-            displayName: name,
-            providerKey: pKey,
-            providerName: pName,
-            section: pName,
-            isFree,
-            isActiveModel,
-          });
+    // 3. Add other connected/authenticated providers
+    if (authenticatedProviders.size > 0) {
+      for (const pKey of authenticatedProviders) {
+        if (pKey === activeProvider) continue;
+        if (pKey === 'opencode') {
+          addOpencodeModels();
+        } else {
+          addProviderModels(pKey);
         }
+      }
+    } else {
+      // If no provider authenticated yet, provide OpenCode as starter list
+      if (activeProvider !== 'opencode') {
+        addOpencodeModels();
       }
     }
 
@@ -350,16 +392,15 @@ function AfotUnifiedModelDialog({
 
   const handleSelectModel = useCallback(
     async (item: UnifiedModelItem) => {
-      const curProv = resolveAfotActiveProviderName();
       setAfotDefaultProvider(item.providerKey);
       setAfotProviderDefaultModel(item.providerKey, item.id);
-      if (item.providerKey !== curProv && config?.refreshAuth) {
-        await config.refreshAuth(AuthType.AFOT_AUTH);
-      }
       if (config) {
         config.setModel(item.id, true);
         const event = new ModelSlashCommandEvent(item.id);
         logModelSlashCommand(config, event);
+      }
+      if (config?.refreshAuth) {
+        await config.refreshAuth(AuthType.AFOT_AUTH);
       }
       saveAfotRecentModel(item.id, item.providerKey);
       onClose();
