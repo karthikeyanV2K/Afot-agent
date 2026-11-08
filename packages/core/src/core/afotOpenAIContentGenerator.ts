@@ -88,16 +88,11 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
     // System instruction
     const sysInstruction = req['systemInstruction'];
-    const providerIdentity = `You are an AI assistant running within AFOT CLI (All For One Tech). You are powered by provider "${this.providerName}" (model: "${this.model}"). Be direct, helpful, and transparent about your model and provider when asked, and do not enforce or claim to be restricted to Gemini unless explicitly running a Gemini model.`;
     if (sysInstruction) {
       const sysText = this.extractText(sysInstruction);
       if (sysText) {
-        messages.push({ role: 'system', content: `${providerIdentity}\n\n${sysText}` });
-      } else {
-        messages.push({ role: 'system', content: providerIdentity });
+        messages.push({ role: 'system', content: sysText });
       }
-    } else {
-      messages.push({ role: 'system', content: providerIdentity });
     }
 
     // Contents → messages

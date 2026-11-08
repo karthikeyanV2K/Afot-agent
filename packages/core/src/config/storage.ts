@@ -201,7 +201,15 @@ export class Storage {
   }
 
   getGeminiDir(): string {
-    return path.join(this.targetDir, GEMINI_DIR);
+    const afotDir = path.join(this.targetDir, GEMINI_DIR);
+    if (fs.existsSync(afotDir)) {
+      return afotDir;
+    }
+    const legacyDir = path.join(this.targetDir, '.gemini');
+    if (fs.existsSync(legacyDir)) {
+      return legacyDir;
+    }
+    return afotDir;
   }
 
   /**
