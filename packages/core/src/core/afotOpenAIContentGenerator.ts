@@ -352,27 +352,42 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       let finishReason: string | null = null;
 
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta;
-        if (!delta) continue;
+        const choice = chunk.choices[0];
+        const delta = choice?.delta;
+        if (!delta && !choice) continue;
 
         const textDelta =
-          delta.content ||
-          (delta as unknown as { reasoning_content?: string }).reasoning_content ||
-          (delta as unknown as { reasoning?: string }).reasoning;
+          delta?.content ||
+          (delta as unknown as { reasoning_content?: string })?.reasoning_content ||
+          (delta as unknown as { reasoning?: string })?.reasoning;
 
-        if (textDelta) {
-          accumulatedText += textDelta;
+        const chunkFinishReason = choice?.finish_reason
+          ? self.mapFinishReason(choice.finish_reason)
+          : undefined;
+
+        if (choice?.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+
+        if (textDelta || chunkFinishReason) {
+          if (textDelta) {
+            accumulatedText += textDelta;
+          }
           yield {
             candidates: [
               {
-                content: { role: 'model', parts: [{ text: textDelta }] },
+                content: {
+                  role: 'model',
+                  parts: textDelta ? [{ text: textDelta }] : [],
+                },
+                ...(chunkFinishReason && { finishReason: chunkFinishReason }),
                 index: 0,
               },
             ],
           } as unknown as GenerateContentResponse;
         }
 
-        if (delta.tool_calls) {
+        if (delta?.tool_calls) {
           for (const tc of delta.tool_calls) {
             const idx = tc.index ?? 0;
             if (!accumulatedToolCalls[idx]) {
@@ -391,10 +406,6 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
               accumulatedToolCalls[idx].function.arguments += tcFunc.arguments;
             }
           }
-        }
-
-        if (chunk.choices[0]?.finish_reason) {
-          finishReason = chunk.choices[0].finish_reason;
         }
       }
 
@@ -417,7 +428,18 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           candidates: [
             {
               content: { role: 'model', parts },
-              finishReason: self.mapFinishReason(finishReason),
+              finishReason: self.mapFinishReason(finishReason ?? 'stop'),
+              index: 0,
+            },
+          ],
+        } as unknown as GenerateContentResponse;
+      } else if (!finishReason) {
+        // Guarantee at least one finish reason is emitted so geminiChat stream validation passes
+        yield {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'STOP',
               index: 0,
             },
           ],
