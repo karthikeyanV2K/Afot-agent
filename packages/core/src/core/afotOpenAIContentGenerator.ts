@@ -212,9 +212,13 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
     const parts: GeminiPart[] = [];
 
-    // Text content
-    if (choice.message.content) {
-      parts.push({ text: choice.message.content });
+    // Text content (including reasoning/thinking models like Nemotron/GLM/DeepSeek)
+    const rawContent =
+      choice.message.content ||
+      (choice.message as unknown as { reasoning_content?: string }).reasoning_content ||
+      (choice.message as unknown as { reasoning?: string }).reasoning;
+    if (rawContent) {
+      parts.push({ text: rawContent });
     }
 
     // Tool calls
@@ -351,12 +355,17 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         const delta = chunk.choices[0]?.delta;
         if (!delta) continue;
 
-        if (delta.content) {
-          accumulatedText += delta.content;
+        const textDelta =
+          delta.content ||
+          (delta as unknown as { reasoning_content?: string }).reasoning_content ||
+          (delta as unknown as { reasoning?: string }).reasoning;
+
+        if (textDelta) {
+          accumulatedText += textDelta;
           yield {
             candidates: [
               {
-                content: { role: 'model', parts: [{ text: delta.content }] },
+                content: { role: 'model', parts: [{ text: textDelta }] },
                 index: 0,
               },
             ],

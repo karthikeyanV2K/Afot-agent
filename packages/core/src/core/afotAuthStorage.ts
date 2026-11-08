@@ -472,7 +472,7 @@ export async function findExecutableAfotModel(
 
   for (const model of candidateModels.slice(0, limit)) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
     try {
       const response = await fetch(
         `${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`,
@@ -487,7 +487,7 @@ export async function findExecutableAfotModel(
           body: JSON.stringify({
             model,
             messages: [{ role: 'user', content: 'Reply with OK.' }],
-            max_tokens: 1,
+            max_tokens: 16,
             stream: false,
           }),
           signal: controller.signal,
@@ -849,16 +849,7 @@ export function getAfotRecentModels(): AfotRecentModel[] {
   } catch {
     // fallback
   }
-  return [
-    { id: 'crouton-alpha-free', provider: 'opencode' },
-    { id: 'glm-5.3-flash-free', provider: 'opencode' },
-    { id: 'z-ai/glm-5.3-flash', provider: 'nvidia' },
-    { id: 'minimaxai/minimax-m3.1-flash', provider: 'nvidia' },
-    { id: 'deepseek-ai/deepseek-v4.1-flash', provider: 'nvidia' },
-    { id: 'deepseek-v4.1-flash-free', provider: 'opencode' },
-    { id: 'nemotron-3.5-super-vl-free', provider: 'opencode' },
-    { id: 'flint-40b-free', provider: 'opencode' },
-  ];
+  return [];
 }
 
 export function saveAfotRecentModel(modelId: string, provider: string): void {

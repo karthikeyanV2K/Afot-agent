@@ -38,6 +38,20 @@ export const OPENCODE_CONSOLE_SERVER = 'https://opencode.ai/console';
 export const OPENCODE_CLIENT_ID = 'opencode-cli';
 export const OPENCODE_PROVIDER_KEY = 'opencode'; // key in auth.json
 
+export const OPENCODE_FREE_MODELS = [
+  'glm-5.3-flash-free',
+  'beam-free',
+  'crouton-alpha-free',
+  'deepseek-v4.1-flash-free',
+  'flint-40b-free',
+  'iceman-free',
+  'inkling-2-small-free',
+  'mimo-v2.6-flash-free',
+  'nemotron-3.5-lightning-free',
+  'nemotron-3.5-super-vl-free',
+  'big-pickle',
+];
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface OpenCodeDeviceCodeResponse {
@@ -253,11 +267,11 @@ export async function fetchOpenCodeConsoleConfig(
   };
 
   // The OpenCode provider's base URL comes from its settings.baseURL
-  // If not present, fall back to the console's AI proxy path
+  // If not present, fall back to the live OpenAI-compatible inference endpoint
   const opencodeProv = body.providers?.['opencode'];
   const baseUrl =
     opencodeProv?.settings?.['baseURL'] ??
-    `${server}/ai/v1`;
+    'https://opencode.ai/inference/openai/v1';
 
   const modelEntries = opencodeProv?.models
     ? Object.entries(opencodeProv.models)
@@ -265,13 +279,13 @@ export async function fetchOpenCodeConsoleConfig(
   const enabledModels = modelEntries
     .filter(([, meta]) => !(meta as { disabled?: boolean })?.disabled)
     .map(([id]) => id);
-  const rawModels =
-    enabledModels.length > 0 ? enabledModels : modelEntries.map(([id]) => id);
 
-  // Prioritize free models first so free tier accounts work out of the box
-  const freeModels = rawModels.filter((m) => m.endsWith('-free') || m.includes('-free'));
-  const paidModels = rawModels.filter((m) => !m.endsWith('-free') && !m.includes('-free'));
-  const models = [...freeModels, ...paidModels];
+  // If the account has no enabled paid models, only return verified free models.
+  // Never fall back to disabled paid models.
+  const models =
+    enabledModels.length > 0
+      ? Array.from(new Set([...OPENCODE_FREE_MODELS, ...enabledModels]))
+      : [...OPENCODE_FREE_MODELS];
 
   return { baseUrl, models, orgId };
 }
@@ -339,8 +353,12 @@ export async function resolveOpenCodeProvider(): Promise<{
     credential.server ?? OPENCODE_CONSOLE_SERVER,
   ).catch(() => null);
 
-  const baseUrl = consoleConfig?.baseUrl ?? `${OPENCODE_CONSOLE_SERVER}/ai/v1`;
-  const models = consoleConfig?.models ?? [];
+  const baseUrl =
+    consoleConfig?.baseUrl ?? 'https://opencode.ai/inference/openai/v1';
+  const models =
+    consoleConfig?.models && consoleConfig.models.length > 0
+      ? consoleConfig.models
+      : [...OPENCODE_FREE_MODELS];
 
   return {
     key: accessToken, // Bearer token used as "api key"

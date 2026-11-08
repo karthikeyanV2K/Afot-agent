@@ -37,6 +37,7 @@ import {
   getAfotRecentModels,
   saveAfotRecentModel,
   toggleAfotFavorite,
+  OPENCODE_FREE_MODELS,
 } from '@google/gemini-cli-core';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { useKeyMatchers } from '../hooks/useKeyMatchers.js';
@@ -84,6 +85,7 @@ function formatModelName(modelId: string): string {
     'iceman-free': 'Iceman Free',
     'inkling-2-small-free': 'Inkling 2 Small Free',
     'beam-free': 'Beam Free',
+    'big-pickle': 'Big Pickle',
     'mimo-v2.6-flash-free': 'Mimo V2.6 Flash Free',
     'claude-fable-5-1': 'Claude Fable 5.1',
     'claude-haiku-5-5': 'Claude Haiku 5.5',
@@ -166,6 +168,9 @@ function AfotUnifiedModelDialog({
   const [catalogVersion, setCatalogVersion] = useState(0);
   const [_favVersion, setFavVersion] = useState(0);
   const [liveOpencodeModels, setLiveOpencodeModels] = useState<string[]>([]);
+  const [liveProviderModels, setLiveProviderModels] = useState<
+    Record<string, string[]>
+  >({});
 
   useEffect(() => {
     setSearchQuery(searchBuffer.text);
@@ -191,13 +196,38 @@ function AfotUnifiedModelDialog({
   const activeProvider = resolveAfotActiveProviderName() ?? 'opencode';
   const currentModel = config?.getModel() ?? '';
 
+  useEffect(() => {
+    let cancelled = false;
+    if (activeProvider && activeProvider !== 'opencode') {
+      void (async () => {
+        try {
+          const prov = resolveAfotProviderByName(activeProvider);
+          if (prov) {
+            const models = await fetchAfotProviderModels(prov);
+            if (!cancelled && models.length > 0) {
+              setLiveProviderModels((prev) => ({
+                ...prev,
+                [activeProvider]: models,
+              }));
+            }
+          }
+        } catch {
+          // ignore
+        }
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProvider]);
+
   const allItems = useMemo(() => {
     const afotConf = readAfotConfig();
     const recents = getAfotRecentModels();
     const items: UnifiedModelItem[] = [];
     const recentKeySet = new Set<string>();
 
-    // 1. Build Recent section
+    // 1. Build Recent section (only if user has actual recent models)
     for (const r of recents) {
       const name = formatModelName(r.id);
       const pName = formatProviderName(r.provider);
@@ -221,11 +251,17 @@ function AfotUnifiedModelDialog({
       recentKeySet.add(`${r.provider}:${r.id}`);
     }
 
-    // 2. OpenCode provider section
-    const opencodeModels =
+    // 2. OpenCode provider section (strictly verified free models)
+    const rawOpencode =
       liveOpencodeModels.length > 0
         ? liveOpencodeModels
-        : (afotConf?.providers?.['opencode']?.models ?? []);
+        : (afotConf?.providers?.['opencode']?.models ?? OPENCODE_FREE_MODELS);
+    const opencodeModels = rawOpencode.filter(
+      (m) =>
+        OPENCODE_FREE_MODELS.includes(m) ||
+        m.includes('-free') ||
+        m === 'big-pickle',
+    );
 
     for (const m of opencodeModels) {
       if (recentKeySet.has(`opencode:${m}`)) continue;
@@ -253,7 +289,10 @@ function AfotUnifiedModelDialog({
     if (afotConf?.providers) {
       for (const [pKey, pConfig] of Object.entries(afotConf.providers)) {
         if (pKey === 'opencode') continue;
-        const providerModels = pConfig.models ?? [];
+        const providerModels =
+          liveProviderModels[pKey]?.length
+            ? liveProviderModels[pKey]
+            : (pConfig.models ?? []);
         if (providerModels.length === 0) continue;
         const pName = formatProviderName(pKey);
 
@@ -283,7 +322,13 @@ function AfotUnifiedModelDialog({
 
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogVersion, liveOpencodeModels, activeProvider, currentModel]);
+  }, [
+    catalogVersion,
+    liveOpencodeModels,
+    liveProviderModels,
+    activeProvider,
+    currentModel,
+  ]);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return allItems;
