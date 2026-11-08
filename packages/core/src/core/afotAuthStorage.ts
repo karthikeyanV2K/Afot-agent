@@ -628,15 +628,14 @@ export const BUILTIN_PROVIDERS: Record<
   nvidia: {
     baseUrl: 'https://integrate.api.nvidia.com/v1',
     models: [
+      'nvidia/nemotron-3.5-super-vl-120b-a12b',
+      'nvidia/nemotron-3.5-lightning-30b-a3b',
+      'nvidia/nemotron-3.5-bolt-e4b',
+      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+      'poolside/laguna-xs-2.1',
+      'nvidia/nemotron-3-ultra-550b-a55b',
       'z-ai/glm-5.3-flash',
-      'glm-5.3-flash',
-      'nvidia/llama-3.1-nemotron-70b-instruct',
-      'nvidia/llama-3.3-nemotron-super-49b-v1',
-      'meta/llama-3.3-70b-instruct',
-      'meta/llama-4-maverick-17b-128e-instruct',
-      'deepseek-ai/deepseek-r1-0528',
-      'qwen/qwen2.5-coder-32b-instruct',
-      'minimax/minimax-m3.1-flash',
+      'deepseek-ai/deepseek-v4.1-flash',
     ],
   },
   anthropic: {
