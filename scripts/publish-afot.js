@@ -50,17 +50,26 @@ try {
     fs.cpSync(sourceBundleDir, destBundleDir, { recursive: true });
   }
 
-  fs.copyFileSync(path.resolve(rootDir, 'README.md'), path.resolve(cliDir, 'README.md'));
-  fs.copyFileSync(path.resolve(rootDir, 'LICENSE'), path.resolve(cliDir, 'LICENSE'));
+  fs.copyFileSync(
+    path.resolve(rootDir, 'README.md'),
+    path.resolve(cliDir, 'README.md'),
+  );
+  fs.copyFileSync(
+    path.resolve(rootDir, 'LICENSE'),
+    path.resolve(cliDir, 'LICENSE'),
+  );
 
-  const rootPkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf-8'));
+  const rootPkg = JSON.parse(
+    fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf-8'),
+  );
   const optionalDependencies = { ...(rootPkg.optionalDependencies || {}) };
   delete optionalDependencies['gemini-cli-devtools'];
 
   const cliPkg = JSON.parse(fs.readFileSync(cliPkgPath, 'utf-8'));
   cliPkg.name = 'afot-cli';
-  cliPkg.version = '1.1.2';
-  cliPkg.description = 'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
+  cliPkg.version = '1.1.3';
+  cliPkg.description =
+    'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
   cliPkg.files = ['bundle/', 'README.md', 'LICENSE'];
   cliPkg.bin = {
     afot: 'bundle/gemini.js',
@@ -86,7 +95,7 @@ try {
     'opencode',
     'nvidia',
     'deepseek',
-    'gemini'
+    'gemini',
   ];
 
   delete cliPkg.dependencies;
@@ -111,7 +120,9 @@ try {
     console.log('--- 5. Publishing to npm registry ---');
     const tokenArg = process.argv.find((arg) => arg.startsWith('--token='));
     const token = tokenArg ? tokenArg.split('=')[1] : process.env.NPM_TOKEN;
-    const tokenFlag = token ? ` --//registry.npmjs.org/:_authToken="${token.trim()}"` : '';
+    const tokenFlag = token
+      ? ` --//registry.npmjs.org/:_authToken="${token.trim()}"`
+      : '';
     const otpArg = process.argv.find((arg) => arg.startsWith('--otp='));
     const otpFlag = otpArg ? ` ${otpArg}` : '';
     const publishEnv = {
@@ -132,7 +143,9 @@ try {
     });
     console.log(`Dist-tag latest updated to ${cliPkg.version}.`);
   } else {
-    console.log('\nDry run complete! Run with --publish to publish live to npm.');
+    console.log(
+      '\nDry run complete! Run with --publish to publish live to npm.',
+    );
   }
 } finally {
   const isPrepareOnly = process.argv.includes('--prepare');
