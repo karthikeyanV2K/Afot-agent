@@ -175,4 +175,56 @@ describe('AfotOpenAIContentGenerator', () => {
       path: 'X:\\Afot-os\\README.md',
     });
   });
+
+  it('updates dynamic model identity and sanitizes session context', () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'initial-model');
+    const req: GenerateContentParameters = {
+      model: 'z-ai/glm-5.3-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: '<session_context>\nActive model: old-stale-model\nOS: win32\n</session_context>',
+            },
+          ],
+        },
+      ],
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const messages = (generator as any).toOpenAIMessages(req, 'z-ai/glm-5.3-flash');
+    const sysMsg = messages.find((m: { role: string }) => m.role === 'system');
+    expect(sysMsg?.content).toContain('[Active Model: z-ai/glm-5.3-flash | Provider: nvidia');
+    expect(sysMsg?.content).toContain('You are running as model "z-ai/glm-5.3-flash"');
+
+    const userMsg = messages.find((m: { role: string }) => m.role === 'user');
+    expect(userMsg?.content).toContain('Active model: z-ai/glm-5.3-flash');
+    expect(userMsg?.content).not.toContain('Active model: old-stale-model');
+  });
+
+  it('throws ModelNotFoundError when a model returns 404 without silent fallback', async () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'moonshotai/kimi-k2.6');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (generator as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockRejectedValue({
+            status: 404,
+            message: "Function 'xyz': Not found for account 'acc'",
+          }),
+        },
+      },
+    };
+
+    const req: GenerateContentParameters = {
+      model: 'moonshotai/kimi-k2.6',
+      contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+    };
+
+    await expect(generator.generateContent(req, 'prompt-1', LlmRole.MAIN)).rejects.toThrow(
+      /is not available on your nvidia account/,
+    );
+  });
 });

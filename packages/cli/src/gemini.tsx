@@ -628,7 +628,10 @@ export async function main() {
             liveModels.includes(afotProvider.defaultModel)
             ? afotProvider.defaultModel
             : liveModels[0]
-          : await findExecutableAfotModel(afotProvider, liveModels);
+          : afotProvider.defaultModel &&
+            liveModels.includes(afotProvider.defaultModel)
+            ? afotProvider.defaultModel
+            : await findExecutableAfotModel(afotProvider, liveModels);
       if (!selectedModel) {
         throw new Error(
           `No executable chat model was found for provider "${afotProvider.name}". Live catalog discovery succeeded, but account-accessible models could not be validated.`,

@@ -89,6 +89,13 @@ function formatModelName(modelId: string): string {
     'beam-free': 'Beam Free',
     'big-pickle': 'Big Pickle',
     'mimo-v2.6-flash-free': 'Mimo V2.6 Flash Free',
+    'kimi-k2.6': 'Kimi K2.6',
+    'kimi-k2-instruct': 'Kimi K2 Instruct',
+    'nemotron-3-ultra-550b-a55b': 'Nemotron 3 Ultra 550B',
+    'nemotron-3.5-lightning-30b-a3b': 'Nemotron 3.5 Lightning 30B',
+    'nemotron-3.5-bolt-e4b': 'Nemotron 3.5 Bolt',
+    'step-5-preview': 'Step-5 Preview',
+    'muse-glimmer-30b': 'Muse Glimmer 30B',
     'claude-fable-5-1': 'Claude Fable 5.1',
     'claude-haiku-5-5': 'Claude Haiku 5.5',
     'claude-opus-5-5': 'Claude Opus 5.5',
@@ -156,6 +163,38 @@ function fuzzyMatch(query: string, target: string): boolean {
     if (t[i] === q[qi]) qi++;
   }
   return qi === q.length;
+}
+
+function getModelSearchScore(query: string, item: UnifiedModelItem): number {
+  const q = query.toLowerCase().trim();
+  if (!q) return 1;
+
+  const id = item.id.toLowerCase();
+  const name = item.name.toLowerCase();
+  const base = (id.includes('/') ? id.split('/')[1]! : id).toLowerCase();
+  const display = item.displayName.toLowerCase();
+  const provKey = item.providerKey.toLowerCase();
+  const provName = item.providerName.toLowerCase();
+
+  // 1. Exact match on base, id, or formatted name
+  if (base === q || id === q || name === q) return 1000;
+
+  // 2. Starts with query (e.g. glm-5.3 starts with glm)
+  if (base.startsWith(q) || id.startsWith(q) || name.startsWith(q)) return 800;
+
+  // 3. Substring match (e.g. z-ai/glm-5.3-flash or GLM-5.3-Flash contains glm)
+  if (id.includes(q) || name.includes(q) || base.includes(q) || display.includes(q)) return 500;
+
+  // 4. Provider exact match or prefix
+  if (provKey === q || provName === q) return 300;
+  if (provKey.startsWith(q) || provName.startsWith(q)) return 200;
+  if (provKey.includes(q) || provName.includes(q)) return 100;
+
+  // 5. Loose fuzzy match on base or id or display
+  if (fuzzyMatch(q, base) || fuzzyMatch(q, name) || fuzzyMatch(q, id)) return 10;
+  if (fuzzyMatch(q, display)) return 5;
+
+  return 0;
 }
 
 const MAX_VISIBLE_MODELS = 11;
@@ -376,13 +415,21 @@ function AfotUnifiedModelDialog({
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return allItems;
-    return allItems.filter(
-      (item) =>
-        fuzzyMatch(searchQuery, item.displayName) ||
-        fuzzyMatch(searchQuery, item.id) ||
-        fuzzyMatch(searchQuery, item.providerName) ||
-        fuzzyMatch(searchQuery, item.section),
-    );
+    const scored = allItems
+      .map((item) => ({ item, score: getModelSearchScore(searchQuery, item) }))
+      .filter((entry) => entry.score > 0);
+
+    const hasStrongMatches = scored.some((s) => s.score >= 500);
+    const relevant = hasStrongMatches
+      ? scored.filter((s) => s.score >= 100)
+      : scored;
+
+    relevant.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return 0;
+    });
+
+    return relevant.map((entry) => entry.item);
   }, [allItems, searchQuery]);
 
   const initialIndex = useMemo(() => {

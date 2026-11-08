@@ -80,15 +80,18 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
   private toOpenAIMessages(
     request: GenerateContentParameters,
+    activeModelOverride?: string,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     // Cast through unknown to access runtime properties
     const req = request as unknown as Record<string, unknown>;
 
+    const effectiveModel = activeModelOverride || this.model;
+
     // System instruction
     const sysInstruction = req['systemInstruction'];
-    const modelContext = `[Active Model: ${this.model} | Provider: ${this.providerName}]`;
+    const modelContext = `[Active Model: ${effectiveModel} | Provider: ${this.providerName}. You are running as model "${effectiveModel}" via provider "${this.providerName}" in AFOT CLI. Always identify yourself truthfully as "${effectiveModel}" when asked.]`;
     if (sysInstruction) {
       const sysText = this.extractText(sysInstruction);
       if (sysText) {
@@ -184,6 +187,9 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         let text = textParts.map((p) => p.text).join('');
         if (text.includes('This is the Gemini CLI.')) {
           text = text.replace('This is the Gemini CLI.', 'This is AFOT CLI.');
+        }
+        if (text.includes('<session_context>')) {
+          text = text.replace(/Active model: [^\r\n]+/g, `Active model: ${effectiveModel}`);
         }
         messages.push({ role, content: text });
       }
@@ -609,8 +615,12 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       status === 410 ||
       (status === 400 && /model is unavailable/i.test(errorMessage))
     ) {
+      const displayMsg =
+        errorMessage.includes('Function') && errorMessage.includes('Not found for account')
+          ? `Model "${this.model}" is not available on your ${this.providerName} account. Please select an available model in /model.`
+          : errorMessage || `Model "${this.model}" is unavailable on ${this.providerName}.`;
       throw new ModelNotFoundError(
-        errorMessage || 'Model is unavailable.',
+        displayMsg,
         status || 404,
       );
     }
@@ -625,11 +635,12 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<GenerateContentResponse> {
-    const messages = this.toOpenAIMessages(request);
-    const tools = this.toOpenAITools(request);
-    const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
+    this.model = modelToUse;
+    const messages = this.toOpenAIMessages(request, modelToUse);
+    const tools = this.toOpenAITools(request);
+    const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
 
     try {
       const completion = await this.client.chat.completions.create({
@@ -649,38 +660,6 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
       return this.toGeminiResponse(completion, messages);
     } catch (err: unknown) {
-      const errObj = err as { status?: number; message?: string; error?: { message?: string } };
-      const msg = errObj?.error?.message || errObj?.message || '';
-      const isUnavailable =
-        errObj?.status === 400 && /model is unavailable/i.test(msg);
-      const isNotFound = errObj?.status === 404 || errObj?.status === 410;
-
-      if ((isUnavailable || isNotFound) && this.providerName === 'nvidia') {
-        const fallback = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
-        if (modelToUse !== fallback) {
-          debugLogger.log(
-            `Model ${modelToUse} unavailable on Nvidia. Falling back to ${fallback}`,
-          );
-          try {
-            const completion = await this.client.chat.completions.create({
-              model: fallback,
-              messages,
-              ...(tools && { tools }),
-              ...(config?.temperature !== undefined && {
-                temperature: config.temperature,
-              }),
-              max_tokens: config?.maxOutputTokens
-                ? Math.min(config.maxOutputTokens, 8192)
-                : 8192,
-              ...(config?.topP !== undefined && { top_p: config.topP }),
-            });
-            return this.toGeminiResponse(completion, messages);
-          } catch (retryErr) {
-            this.handleOpenAIError(retryErr);
-          }
-        }
-      }
-
       this.handleOpenAIError(err);
     }
   }
@@ -690,11 +669,12 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<AsyncGenerator<GenerateContentResponse>> {
-    const messages = this.toOpenAIMessages(request);
-    const tools = this.toOpenAITools(request);
-    const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
+    this.model = modelToUse;
+    const messages = this.toOpenAIMessages(request, modelToUse);
+    const tools = this.toOpenAITools(request);
+    const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
 
     let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
     try {
@@ -735,45 +715,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         );
       }
     } catch (err: unknown) {
-      const errObj = err as { status?: number; message?: string; error?: { message?: string } };
-      const msg = errObj?.error?.message || errObj?.message || '';
-      const isUnavailable =
-        errObj?.status === 400 && /model is unavailable/i.test(msg);
-      const isNotFound =
-        errObj?.status === 404 ||
-        errObj?.status === 410 ||
-        /timeout|timed out|abort/i.test(msg);
-
-      if ((isUnavailable || isNotFound) && this.providerName === 'nvidia') {
-        const fallback = 'nvidia/nemotron-3-ultra-550b-a55b';
-        if (modelToUse !== fallback) {
-          debugLogger.log(
-            `Model ${modelToUse} unavailable on Nvidia. Falling back to ${fallback}`,
-          );
-          try {
-            stream = await this.client.chat.completions.create({
-              model: fallback,
-              messages,
-              stream: true,
-              stream_options: { include_usage: true },
-              ...(tools && { tools }),
-              ...(config?.temperature !== undefined && {
-                temperature: config.temperature,
-              }),
-              max_tokens: config?.maxOutputTokens
-                ? Math.min(config.maxOutputTokens, 8192)
-                : 8192,
-              ...(config?.topP !== undefined && { top_p: config.topP }),
-            });
-          } catch (retryErr) {
-            this.handleOpenAIError(retryErr);
-          }
-        } else {
-          this.handleOpenAIError(err);
-        }
-      } else {
-        this.handleOpenAIError(err);
-      }
+      this.handleOpenAIError(err);
     }
 
     // Return an async generator
