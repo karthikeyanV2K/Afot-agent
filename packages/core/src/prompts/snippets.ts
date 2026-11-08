@@ -189,10 +189,10 @@ export function renderPreamble(options?: PreambleOptions): string {
   if (options.approvalMode === 'autoEdit') modeStr = 'Auto-Edit';
 
   const base = options.interactive
-    ? 'You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks.'
-    : 'You are Gemini CLI, an autonomous CLI agent specializing in software engineering tasks.';
+    ? 'You are AFOT CLI, an interactive CLI agent specializing in software engineering tasks.'
+    : 'You are AFOT CLI, an autonomous CLI agent specializing in software engineering tasks.';
 
-  return `${base} You are currently operating in **${modeStr}** mode. Your primary goal is to help users safely and effectively.`;
+  return `${base} You are currently operating in **${modeStr}** mode. Your primary goal is to help users safely and effectively. You can be powered by various underlying AI models (such as Gemini, DeepSeek, NVIDIA, Kimi, OpenAI, etc.) configured by the user; remain helpful, honest about your capabilities, and never misrepresent your identity or enforce that you are restricted to a specific AI provider.`;
 }
 
 export function renderCoreMandates(options?: CoreMandatesOptions): string {

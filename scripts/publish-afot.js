@@ -58,13 +58,12 @@ try {
   delete optionalDependencies['gemini-cli-devtools'];
 
   const cliPkg = JSON.parse(fs.readFileSync(cliPkgPath, 'utf-8'));
-  cliPkg.name = 'afot';
-  cliPkg.version = '1.0.0';
+  cliPkg.name = 'afot-cli';
+  cliPkg.version = '1.1.0';
   cliPkg.description = 'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
   cliPkg.files = ['bundle/', 'README.md', 'LICENSE'];
   cliPkg.bin = {
     afot: 'bundle/gemini.js',
-    gemini: 'bundle/gemini.js',
   };
   cliPkg.repository = {
     type: 'git',
@@ -119,11 +118,15 @@ try {
       fs.writeFileSync(cliNpmrc, `//registry.npmjs.org/:_authToken=${token.trim()}\n`);
     }
 
+    const tokenFlag = token ? ` --//registry.npmjs.org/:_authToken="${token.trim()}"` : '';
     const otpArg = process.argv.find((arg) => arg.startsWith('--otp='));
     const otpFlag = otpArg ? ` ${otpArg}` : '';
     try {
-      execSync(`npm publish --access public${otpFlag}`, { stdio: 'inherit', cwd: cliDir });
-      console.log('🎉 Successfully published afot to npm registry!');
+      execSync(`npm publish --access public${tokenFlag}${otpFlag}`, { stdio: 'inherit', cwd: cliDir });
+      console.log('🎉 Successfully published afot-cli to npm registry!');
+      console.log('Updating dist-tag latest to 1.1.0...');
+      execSync(`npm dist-tag add afot-cli@1.1.0 latest${tokenFlag}`, { stdio: 'inherit', cwd: cliDir });
+      console.log('Dist-tag latest updated to 1.1.0.');
     } finally {
       if (fs.existsSync(cliNpmrc)) {
         fs.rmSync(cliNpmrc, { force: true });

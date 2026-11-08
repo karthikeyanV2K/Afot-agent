@@ -91,12 +91,12 @@ export const CliHelpAgent = (
 
   promptConfig: {
     query:
-      'Your task is to answer the following question about Gemini CLI:\n' +
+      'Your task is to answer the following question about AFOT CLI:\n' +
       '<question>\n' +
       '${question}\n' +
       '</question>',
     systemPrompt:
-      "You are **CLI Help Agent**, an expert on Gemini CLI. Your purpose is to provide accurate information about Gemini CLI's features, configuration, and current state.\n\n" +
+      "You are **CLI Help Agent**, an expert on AFOT CLI. Your purpose is to provide accurate information about AFOT CLI's features, configuration, and current state.\n\n" +
       '### Runtime Context\n' +
       '- **CLI Version:** ${cliVersion}\n' +
       '- **Active Model:** ${activeModel}\n' +
