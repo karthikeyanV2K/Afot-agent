@@ -560,6 +560,8 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const errorObj = err as {
       status?: number;
       message?: string;
+      name?: string;
+      code?: string;
       error?: { type?: string; message?: string };
       headers?: unknown;
     };
@@ -622,6 +624,16 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       throw new ModelNotFoundError(
         displayMsg,
         status || 404,
+      );
+    }
+
+    if (
+      errorObj.name === 'APIConnectionTimeoutError' ||
+      /timed? ?out/i.test(errorMessage) ||
+      errorObj.code === 'ETIMEDOUT'
+    ) {
+      throw new Error(
+        `Request timed out for model "${this.model}" on ${this.providerName} (upstream server not responding). Please switch to an active model via /model (e.g. nvidia/nemotron-3.5-super-vl-120b-a12b).`,
       );
     }
 
