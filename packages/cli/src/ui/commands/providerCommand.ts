@@ -9,6 +9,11 @@ import {
   setAfotDefaultProvider,
   setAfotProviderKey,
   resolveAfotProvider,
+  resolveAfotActiveProviderName,
+  resolveAfotProviderByName,
+  fetchAfotProviderModels,
+  resolveOpenCodeProvider,
+  readAfotConfig,
 } from '@google/gemini-cli-core';
 import { type CommandContext, CommandKind, type SlashCommand } from './types.js';
 import { MessageType } from '../types.js';
@@ -22,19 +27,21 @@ const providerListCommand: SlashCommand = {
   autoExecute: true,
   action: (context: CommandContext) => {
     const providers = getAllAfotProviderStatus();
-    const active = resolveAfotProvider();
+    const activeName = resolveAfotActiveProviderName();
 
     const lines: string[] = [
-      `AFOT Providers  (active: ${active?.name ?? 'none'})`,
+      `AFOT Providers  (active: ${activeName ?? 'none'})`,
       '',
     ];
 
     for (const p of providers) {
-      const star = p.name === active?.name ? '▶ ' : '  ';
+      const star = p.name === activeName ? '▶ ' : '  ';
       const keyStatus = p.configured
         ? p.isLocal
           ? '(local)'
-          : '(key set)'
+          : p.name === 'opencode'
+            ? '(connected)'
+            : '(key set)'
         : '(no key)';
       lines.push(`${star}${p.name.padEnd(14)} ${keyStatus}`);
       if (p.baseUrl) {
@@ -96,10 +103,34 @@ const providerUseCommand: SlashCommand = {
     if (config) {
       try {
         await config.refreshAuth(AuthType.AFOT_AUTH);
+        let models: string[] = [];
+        let resolvedBaseUrl = found.baseUrl;
+        if (name === 'opencode') {
+          const opProv = await resolveOpenCodeProvider().catch(() => null);
+          models = opProv?.models ?? [];
+          if (opProv?.baseUrl) resolvedBaseUrl = opProv.baseUrl;
+        } else {
+          const prov = resolveAfotProviderByName(name);
+          models = await fetchAfotProviderModels(prov);
+          if (prov?.baseUrl) resolvedBaseUrl = prov.baseUrl;
+        }
+
+        const afotConfig = readAfotConfig();
+        const configuredModel =
+          afotConfig?.providers?.[name]?.defaultModel ||
+          (afotConfig?.defaultProvider === name ? afotConfig.defaultModel : undefined);
+        const targetModel =
+          configuredModel && models.includes(configuredModel)
+            ? configuredModel
+            : models[0];
+
+        if (targetModel) {
+          config.setModel(targetModel, true);
+        }
         context.ui.addItem(
           {
             type: MessageType.INFO,
-            text: `✓ Switched to provider: ${name}  (${found.baseUrl})`,
+            text: `✓ Switched to provider: ${name}  (${resolvedBaseUrl || found.baseUrl || 'connected'})`,
           },
           Date.now(),
         );
@@ -160,7 +191,7 @@ const providerModelsCommand: SlashCommand = {
   description: 'List models for a provider (defaults to active provider)',
   kind: CommandKind.BUILT_IN,
   autoExecute: false,
-  action: (context: CommandContext, args: string) => {
+  action: async (context: CommandContext, args: string) => {
     const targetName = args.trim() || resolveAfotProvider()?.name;
     if (!targetName) {
       context.ui.addItem(
@@ -178,12 +209,19 @@ const providerModelsCommand: SlashCommand = {
       );
       return;
     }
+    let models = p.models;
+    if (targetName === 'opencode') {
+      models = (await resolveOpenCodeProvider().catch(() => null))?.models ?? [];
+    } else {
+      models = await fetchAfotProviderModels(resolveAfotProviderByName(targetName));
+    }
+
     const lines = [
       `Models for ${p.name}  (${p.baseUrl}):`,
       '',
-      ...(p.models.length > 0
-        ? p.models.map((m) => `  ${m}`)
-        : ['  (no models configured — add to ~/.afot/config.json)']),
+      ...(models.length > 0
+        ? models.map((m) => `  ${m}`)
+        : ['  (no live models returned by this provider)']),
     ];
     context.ui.addItem(
       { type: MessageType.INFO, text: lines.join('\n') },

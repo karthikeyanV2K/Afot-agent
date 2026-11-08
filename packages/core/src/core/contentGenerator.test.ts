@@ -32,6 +32,8 @@ vi.mock('./apiKeyCredentialStorage.js', () => ({
 }));
 vi.mock('./afotAuthStorage.js', () => ({
   resolveAfotProvider: vi.fn(),
+  resolveAfotActiveProviderName: vi.fn(),
+  fetchAfotProviderModels: vi.fn().mockResolvedValue([]),
   readAfotAuthFile: vi.fn(),
   readAfotConfig: vi.fn(),
   listAfotProviders: vi.fn(),
@@ -43,6 +45,11 @@ vi.mock('./afotAuthStorage.js', () => ({
   setAfotProviderKey: vi.fn(),
   setAfotDefaultProvider: vi.fn(),
   getAllAfotProviderStatus: vi.fn(),
+  setAfotProviderDefaultModel: vi.fn(),
+  getAfotRecentModels: vi.fn().mockReturnValue([]),
+  saveAfotRecentModel: vi.fn(),
+  getAfotFavorites: vi.fn().mockReturnValue([]),
+  toggleAfotFavorite: vi.fn().mockReturnValue(true),
   BUILTIN_PROVIDERS: {},
   LOCAL_PROVIDERS: new Set(),
   generateBlankAuthFile: vi.fn(),

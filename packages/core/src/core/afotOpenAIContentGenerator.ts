@@ -102,6 +102,9 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       contentList = [rawContents as GeminiContent];
     }
 
+    let callCounter = 0;
+    const pendingCalls: Array<{ name: string; id: string }> = [];
+
     for (const content of contentList) {
       if (!content?.parts) continue;
 
@@ -113,14 +116,18 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       const textParts = content.parts.filter((p) => p.text !== undefined);
 
       if (functionCalls.length > 0) {
-        const toolCalls = functionCalls.map((p, i) => ({
-          id: `call_${i}`,
-          type: 'function' as const,
-          function: {
-            name: p.functionCall!.name,
-            arguments: JSON.stringify(p.functionCall!.args ?? {}),
-          },
-        }));
+        const toolCalls = functionCalls.map((p) => {
+          const id = `call_${++callCounter}_${p.functionCall!.name}`;
+          pendingCalls.push({ name: p.functionCall!.name, id });
+          return {
+            id,
+            type: 'function' as const,
+            function: {
+              name: p.functionCall!.name,
+              arguments: JSON.stringify(p.functionCall!.args ?? {}),
+            },
+          };
+        });
         messages.push({
           role: 'assistant',
           content: textParts.map((p) => p.text).join('') || null,
@@ -128,10 +135,20 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         });
       } else if (functionResponses.length > 0) {
         for (const resp of functionResponses) {
+          const name = resp.functionResponse!.name;
+          const matchIdx = pendingCalls.findIndex((c) => c.name === name);
+          let toolCallId: string;
+          if (matchIdx !== -1) {
+            toolCallId = pendingCalls[matchIdx].id;
+            pendingCalls.splice(matchIdx, 1);
+          } else {
+            toolCallId =
+              pendingCalls.shift()?.id ?? `call_${++callCounter}_${name}`;
+          }
           messages.push({
             role: 'tool',
             content: JSON.stringify(resp.functionResponse!.response ?? {}),
-            tool_call_id: `call_0`,
+            tool_call_id: toolCallId,
           });
         }
       } else if (textParts.length > 0) {
@@ -146,6 +163,9 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
   private toOpenAITools(
     request: GenerateContentParameters,
   ): OpenAI.Chat.Completions.ChatCompletionTool[] | undefined {
+    if (this.providerName === 'nvidia') {
+      return undefined;
+    }
     const config = request.config as
       | { tools?: Array<{ functionDeclarations?: GeminiFunctionDeclaration[] }> }
       | undefined;
@@ -265,9 +285,14 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const messages = this.toOpenAIMessages(request);
     const tools = this.toOpenAITools(request);
     const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
+    const reqModel = (request as { model?: string }).model;
+    const modelToUse =
+      typeof reqModel === 'string' && reqModel.trim()
+        ? reqModel.trim().replace(/^models\//, '')
+        : this.model;
 
     const completion = await this.client.chat.completions.create({
-      model: this.model,
+      model: modelToUse,
       messages,
       ...(tools && { tools }),
       ...(config?.temperature !== undefined && {
@@ -292,9 +317,14 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const messages = this.toOpenAIMessages(request);
     const tools = this.toOpenAITools(request);
     const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
+    const reqModel = (request as { model?: string }).model;
+    const modelToUse =
+      typeof reqModel === 'string' && reqModel.trim()
+        ? reqModel.trim().replace(/^models\//, '')
+        : this.model;
 
     const stream = await this.client.chat.completions.create({
-      model: this.model,
+      model: modelToUse,
       messages,
       stream: true,
       ...(tools && { tools }),

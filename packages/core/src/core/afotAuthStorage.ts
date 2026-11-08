@@ -88,6 +88,8 @@ export interface AfotProviderConfig {
   baseUrl: string;
   /** List of model IDs available from this provider */
   models?: string[];
+  /** Explicitly selected live model for this provider */
+  defaultModel?: string;
   /** Extra HTTP headers to send to this provider */
   headers?: Record<string, string>;
 }
@@ -208,12 +210,23 @@ export function getAllAfotProviderStatus(): Array<{
     const authEntry = authFile[name];
     const key =
       authEntry?.type === 'api' ? (authEntry as AfotApiAuth).key?.trim() : '';
+    const oauthToken =
+      authEntry?.type === 'oauth'
+        ? (authEntry as AfotOAuthAuth).access_token?.trim()
+        : '';
     const provConfig =
       config?.providers?.[name] ?? BUILTIN_PROVIDERS[name];
+    const baseUrl =
+      provConfig?.baseUrl ||
+      (name === 'opencode'
+        ? (authEntry?.type === 'oauth' && (authEntry as AfotOAuthAuth)['server']
+            ? String((authEntry as AfotOAuthAuth)['server'])
+            : 'https://opencode.ai/console')
+        : BUILTIN_PROVIDERS[name]?.baseUrl || '');
     return {
       name,
-      configured: !!key,
-      baseUrl: provConfig?.baseUrl ?? '',
+      configured: !!key || !!oauthToken,
+      baseUrl,
       models: provConfig?.models ?? BUILTIN_PROVIDERS[name]?.models ?? [],
       isLocal: LOCAL_PROVIDERS.has(name),
     };
@@ -244,24 +257,41 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
     candidates.push(config.defaultProvider.trim());
   }
 
-  // Add all api-type providers as fallbacks
+  // Add all authenticated providers as fallbacks
   for (const [name, entry] of Object.entries(authFile)) {
     if (entry.type === 'api' && (entry as AfotApiAuth).key?.trim()) {
+      candidates.push(name);
+    }
+    if (entry.type === 'oauth' && (entry as AfotOAuthAuth).access_token?.trim()) {
       candidates.push(name);
     }
   }
 
   for (const name of candidates) {
     const authEntry = authFile[name];
-    if (!authEntry || authEntry.type !== 'api') continue;
+    if (!authEntry) continue;
 
-    const key = (authEntry as AfotApiAuth).key?.trim();
+    const key =
+      authEntry.type === 'api'
+        ? (authEntry as AfotApiAuth).key?.trim()
+        : (authEntry as AfotOAuthAuth).access_token?.trim();
     if (!key) continue;
 
     const providerConfig = config?.providers?.[name];
+    const oauthServer =
+      authEntry.type === 'oauth'
+        ? (authEntry as AfotOAuthAuth)['server']
+        : undefined;
+    const server =
+      typeof oauthServer === 'string' && oauthServer.trim()
+        ? oauthServer.trim()
+        : 'https://opencode.ai/console';
 
-    // baseUrl: config.json entry wins, otherwise require it to be present
-    const baseUrl = providerConfig?.baseUrl?.trim();
+    const baseUrl =
+      providerConfig?.baseUrl?.trim() ||
+      (name === 'opencode'
+        ? `${server.replace(/\/+$/, '')}/ai/v1`
+        : '');
     if (!baseUrl) {
       debugLogger.warn(
         `AFOT: Provider "${name}" has no baseUrl in ~/.afot/config.json — skipping`,
@@ -275,11 +305,232 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
       baseUrl,
       headers: providerConfig?.headers,
       models: providerConfig?.models,
-      defaultModel: config?.defaultModel?.trim() || providerConfig?.models?.[0],
+      defaultModel: providerConfig?.defaultModel?.trim(),
     };
   }
 
   return null;
+}
+
+export function resolveAfotProviderByName(
+  providerName: string,
+): AfotResolvedProvider | null {
+  const authFile = readAfotAuthFile();
+  const entry = authFile?.[providerName];
+  if (!entry) return null;
+
+  const config = readAfotConfig();
+  const providerConfig = config?.providers?.[providerName];
+  const key =
+    entry.type === 'api'
+      ? entry.key?.trim()
+      : entry.type === 'oauth'
+        ? entry.access_token?.trim()
+        : '';
+  if (!key) return null;
+
+  const oauthServer =
+    entry.type === 'oauth'
+      ? (entry as AfotOAuthAuth)['server']
+      : undefined;
+  const server =
+    typeof oauthServer === 'string' && oauthServer.trim()
+      ? oauthServer.trim()
+      : 'https://opencode.ai/console';
+  const baseUrl =
+    providerConfig?.baseUrl?.trim() ||
+    (providerName === 'opencode'
+      ? `${server.replace(/\/+$/, '')}/ai/v1`
+      : '');
+  if (!baseUrl) return null;
+
+  return {
+    name: providerName,
+    key,
+    baseUrl,
+    headers: providerConfig?.headers,
+    models: providerConfig?.models,
+    defaultModel: providerConfig?.defaultModel?.trim(),
+  };
+}
+
+export function resolveAfotActiveProviderName(): string | null {
+  const authFile = readAfotAuthFile();
+  if (!authFile) return null;
+
+  const envProvider = process.env['AFOT_PROVIDER']?.trim();
+  if (envProvider) {
+    const envEntry = authFile[envProvider];
+    if (
+      envEntry?.type === 'api' &&
+      (envEntry as AfotApiAuth).key?.trim()
+    ) return envProvider;
+    if (
+      envEntry?.type === 'oauth' &&
+      (envEntry as AfotOAuthAuth).access_token?.trim()
+    ) return envProvider;
+  }
+
+  const config = readAfotConfig();
+  const configured = config?.defaultProvider?.trim();
+  if (configured) {
+    const configuredEntry = authFile[configured];
+    if (
+      configuredEntry?.type === 'api' &&
+      (configuredEntry as AfotApiAuth).key?.trim()
+    ) {
+      return configured;
+    }
+    if (
+      configuredEntry?.type === 'oauth' &&
+      (configuredEntry as AfotOAuthAuth).access_token?.trim()
+    ) {
+      return configured;
+    }
+  }
+
+  for (const [name, entry] of Object.entries(authFile)) {
+    if (entry.type === 'api' && entry.key?.trim()) return name;
+    if (entry.type === 'oauth' && entry.access_token?.trim()) return name;
+  }
+  return null;
+}
+
+export function filterAfotChatModels(models: readonly string[]): string[] {
+  const excluded = [
+    'embed', 'embedding', 'retriever', 'retrieval', 'rerank', 'reward',
+    'guardrail', 'safety', 'moderation', 'nemoguard', 'topic-control',
+    'parse', 'parser', 'diffusion', 'deplot', 'fuyu', 'clip', 'vision',
+    'image', 'audio', 'video', 'tts', 'speech-to-text', 'ocr',
+    'segmentation', 'detection',
+  ];
+  return models.filter((model) =>
+    !excluded.some((token) => model.toLowerCase().includes(token)),
+  );
+}
+
+export function sortAfotModels(models: readonly string[]): string[] {
+  return Array.from(new Set(models.filter((model) => model.trim())))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
+export async function fetchAfotProviderModels(
+  provider?: AfotResolvedProvider | null,
+): Promise<string[]> {
+  const resolved = provider ?? resolveAfotProvider();
+  if (!resolved?.baseUrl) return [];
+
+  try {
+    const response = await fetch(`${resolved.baseUrl.replace(/\/+$/, '')}/models`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${resolved.key}`,
+        ...resolved.headers,
+      },
+    });
+    if (!response.ok) return [];
+    const body = await response.json() as {
+      data?: Array<{ id?: unknown }>;
+      models?: Record<string, unknown> | string[];
+    };
+    const ids = Array.isArray(body.data)
+      ? body.data.map((model) => model.id).filter(
+          (id): id is string => typeof id === 'string' && id.length > 0,
+        )
+      : [];
+    if (ids.length === 0 && Array.isArray(body.models)) {
+      ids.push(...body.models.filter((id): id is string =>
+        typeof id === 'string' && id.length > 0));
+    } else if (ids.length === 0 && body.models && typeof body.models === 'object') {
+      ids.push(...Object.keys(body.models));
+    }
+    return sortAfotModels(filterAfotChatModels(Array.from(new Set(ids))));
+  } catch {
+    return [];
+  }
+}
+
+const executableModelCache = new Map<string, string>();
+
+export async function findExecutableAfotModel(
+  provider: AfotResolvedProvider,
+  models: readonly string[],
+  limit = Number.POSITIVE_INFINITY,
+): Promise<string | undefined> {
+  if (provider.name !== 'nvidia' && provider.name !== 'openrouter') {
+    return models[0];
+  }
+
+  const cacheKey = `${provider.name}:${provider.key}`;
+  const cached = executableModelCache.get(cacheKey);
+  if (cached && models.includes(cached)) return cached;
+
+  const candidateModels = [
+    ...(provider.defaultModel ? [provider.defaultModel] : []),
+    ...models.filter((m) => m !== provider.defaultModel),
+  ];
+
+  for (const model of candidateModels.slice(0, limit)) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch(
+        `${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${provider.key}`,
+            ...provider.headers,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: 'Reply with OK.' }],
+            max_tokens: 1,
+            stream: false,
+          }),
+          signal: controller.signal,
+        },
+      );
+      if (response.ok) {
+        executableModelCache.set(cacheKey, model);
+        return model;
+      }
+      if (response.status === 401 || response.status === 403 || response.status === 429) {
+        return undefined;
+      }
+    } catch {
+      // Try the next catalog entry; provider-specific 404s do not indicate availability of later models.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  return undefined;
+}
+
+export function setAfotProviderModels(
+  providerName: string,
+  models: string[],
+  defaultModel?: string,
+): void {
+  if (models.length === 0) return;
+  ensureAfotDir();
+  const configPath = getAfotConfigFilePath();
+  const config = readAfotConfig() ?? generateDefaultConfigFile();
+  config.providers = {
+    ...(config.providers ?? {}),
+    [providerName]: {
+      ...(config.providers?.[providerName] ?? {}),
+      baseUrl:
+        config.providers?.[providerName]?.baseUrl ??
+        BUILTIN_PROVIDERS[providerName]?.baseUrl ??
+        '',
+      models,
+      ...(defaultModel ? { defaultModel } : {}),
+    },
+  };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
 }
 
 /**
@@ -557,3 +808,112 @@ export function ensureAfotDir(): void {
     debugLogger.log(`AFOT: Created default config.json at ${configPath}`);
   }
 }
+
+/**
+ * Sets the default model for a specific provider in ~/.afot/config.json.
+ */
+export function setAfotProviderDefaultModel(
+  providerName: string,
+  modelId: string,
+): void {
+  ensureAfotDir();
+  const configPath = getAfotConfigFilePath();
+  const config = readAfotConfig() ?? generateDefaultConfigFile();
+  if (!config.providers) {
+    config.providers = {};
+  }
+  if (!config.providers[providerName]) {
+    config.providers[providerName] = { baseUrl: '' };
+  }
+  config.providers[providerName].defaultModel = modelId;
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  debugLogger.log(
+    `AFOT: Default model for provider "${providerName}" set to "${modelId}"`,
+  );
+}
+
+export interface AfotRecentModel {
+  id: string;
+  provider: string;
+}
+
+export function getAfotRecentModels(): AfotRecentModel[] {
+  const recentPath = path.join(getAfotDir(), 'recent_models.json');
+  try {
+    if (fs.existsSync(recentPath)) {
+      const data = JSON.parse(fs.readFileSync(recentPath, 'utf8'));
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return [
+    { id: 'crouton-alpha-free', provider: 'opencode' },
+    { id: 'glm-5.3-flash-free', provider: 'opencode' },
+    { id: 'z-ai/glm-5.3-flash', provider: 'nvidia' },
+    { id: 'minimaxai/minimax-m3.1-flash', provider: 'nvidia' },
+    { id: 'deepseek-ai/deepseek-v4.1-flash', provider: 'nvidia' },
+    { id: 'deepseek-v4.1-flash-free', provider: 'opencode' },
+    { id: 'nemotron-3.5-super-vl-free', provider: 'opencode' },
+    { id: 'flint-40b-free', provider: 'opencode' },
+  ];
+}
+
+export function saveAfotRecentModel(modelId: string, provider: string): void {
+  ensureAfotDir();
+  const recentPath = path.join(getAfotDir(), 'recent_models.json');
+  const existing = getAfotRecentModels();
+  const updated = [
+    { id: modelId, provider },
+    ...existing.filter((r) => !(r.id === modelId && r.provider === provider)),
+  ].slice(0, 20);
+  try {
+    fs.writeFileSync(
+      recentPath,
+      JSON.stringify(updated, null, 2) + '\n',
+      'utf8',
+    );
+  } catch (err) {
+    debugLogger.warn(`AFOT: Failed to write recent_models.json: ${err}`);
+  }
+}
+
+export function getAfotFavorites(): string[] {
+  const favPath = path.join(getAfotDir(), 'favorites.json');
+  try {
+    if (fs.existsSync(favPath)) {
+      const data = JSON.parse(fs.readFileSync(favPath, 'utf8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch {
+    // fallback
+  }
+  return [];
+}
+
+export function toggleAfotFavorite(modelId: string): boolean {
+  ensureAfotDir();
+  const favPath = path.join(getAfotDir(), 'favorites.json');
+  const favs = new Set(getAfotFavorites());
+  let isFavorite: boolean;
+  if (favs.has(modelId)) {
+    favs.delete(modelId);
+    isFavorite = false;
+  } else {
+    favs.add(modelId);
+    isFavorite = true;
+  }
+  try {
+    fs.writeFileSync(
+      favPath,
+      JSON.stringify(Array.from(favs), null, 2) + '\n',
+      'utf8',
+    );
+  } catch (err) {
+    debugLogger.warn(`AFOT: Failed to write favorites.json: ${err}`);
+  }
+  return isFavorite;
+}
+

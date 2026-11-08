@@ -42,6 +42,9 @@ import {
   ensureAfotDir,
   loadAfotPlugins,
   resolveAfotProvider,
+  fetchAfotProviderModels,
+  findExecutableAfotModel,
+  resolveOpenCodeProvider,
 } from '@google/gemini-cli-core';
 
 import { loadCliConfig, parseArguments } from './config/config.js';
@@ -608,10 +611,32 @@ export async function main() {
   // ── AFOT: Auto-select default model from provider config ──
   if (!argv.model) {
     const afotProvider = resolveAfotProvider();
-    if (afotProvider?.defaultModel) {
-      argv.model = afotProvider.defaultModel;
+    if (afotProvider) {
+      let liveModels: string[] = [];
+      if (afotProvider.name === 'opencode') {
+        const openCodeProvider = await resolveOpenCodeProvider().catch(
+          () => null,
+        );
+        liveModels = openCodeProvider?.models?.filter(Boolean) ?? [];
+      } else {
+        liveModels = await fetchAfotProviderModels(afotProvider);
+      }
+
+      const selectedModel =
+        afotProvider.name === 'opencode'
+          ? afotProvider.defaultModel &&
+            liveModels.includes(afotProvider.defaultModel)
+            ? afotProvider.defaultModel
+            : liveModels[0]
+          : await findExecutableAfotModel(afotProvider, liveModels);
+      if (!selectedModel) {
+        throw new Error(
+          `No executable chat model was found for provider "${afotProvider.name}". Live catalog discovery succeeded, but account-accessible models could not be validated.`,
+        );
+      }
+      argv.model = selectedModel;
       debugLogger.log(
-        `AFOT: auto-selected model "${afotProvider.defaultModel}" from provider "${afotProvider.name}"`,
+        `AFOT: auto-selected live model "${selectedModel}" from provider "${afotProvider.name}"`,
       );
     }
   }
@@ -900,8 +925,7 @@ export async function main() {
       .catch((e) => debugLogger.warn('LiteRT auto-start import failed:', e));
 
     if (
-      settings.merged.security.auth.selectedType ===
-        AuthType.AFOT_AUTH &&
+      settings.merged.security.auth.selectedType === AuthType.AFOT_AUTH &&
       config.isBrowserLaunchSuppressed()
     ) {
       // Do oauth before app renders to make copying the link possible.

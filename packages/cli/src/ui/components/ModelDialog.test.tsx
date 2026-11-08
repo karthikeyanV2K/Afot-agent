@@ -17,7 +17,6 @@ import {
   DEFAULT_GEMINI_FLASH_LITE_MODEL,
   PREVIEW_GEMINI_MODEL,
   PREVIEW_GEMINI_3_1_MODEL,
-  PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL,
   PREVIEW_GEMINI_FLASH_MODEL,
   PREVIEW_GEMINI_FLASH_LITE_MODEL,
   AuthType,
@@ -113,7 +112,7 @@ describe('<ModelDialog />', () => {
 
   const renderComponent = async (
     configValue = mockConfig as Config,
-    authType = AuthType.AFOT_AUTH,
+    authType = AuthType.COMPUTE_ADC,
   ) => {
     const settings = createMockSettings({
       security: {
@@ -432,11 +431,11 @@ describe('<ModelDialog />', () => {
       unmount();
     });
 
-    it('uses custom tools model when Gemini 3.1 IS launched and auth is Gemini API Key', async () => {
+    it('uses the preview model when Gemini 3.1 is launched with compute credentials', async () => {
       mockGetGemini31LaunchedSync.mockReturnValue(true);
       const { stdin, waitUntilReady, unmount } = await renderComponent(
         mockConfig as Config,
-        AuthType.AFOT_AUTH,
+        AuthType.COMPUTE_ADC,
       );
 
       // Go to manual view
@@ -457,7 +456,7 @@ describe('<ModelDialog />', () => {
 
       await waitFor(() => {
         expect(mockSetModel).toHaveBeenCalledWith(
-          PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL,
+          PREVIEW_GEMINI_3_1_MODEL,
           true,
         );
       });
@@ -485,6 +484,60 @@ describe('<ModelDialog />', () => {
       const output = lastFrame();
       expect(output).not.toContain(PREVIEW_GEMINI_FLASH_LITE_MODEL);
       expect(output).toContain(DEFAULT_GEMINI_FLASH_LITE_MODEL);
+      unmount();
+    });
+  });
+
+  describe('AFOT Unified Model Catalog (OpenCode style)', () => {
+    it('renders unified model catalog with Select model header and sections', async () => {
+      mockGetModel.mockReturnValue('glm-5.3-flash-free');
+      const { lastFrame, unmount } = await renderComponent(
+        mockConfig as Config,
+        AuthType.AFOT_AUTH,
+      );
+      const output = lastFrame();
+      expect(output).toContain('Select model');
+      expect(output).toContain('esc');
+      expect(output).toContain('Recent');
+      expect(output).toContain('GLM-5.3-Flash Free');
+      expect(output).toContain('Free');
+      expect(output).toContain('Connect an integration');
+      expect(output).toContain('ctrl+a');
+      expect(output).toContain('Favorite');
+      expect(output).toContain('ctrl+f');
+      unmount();
+    });
+
+    it('closes on escape in AFOT view', async () => {
+      const { stdin, waitUntilReady, unmount } = await renderComponent(
+        mockConfig as Config,
+        AuthType.AFOT_AUTH,
+      );
+      await act(async () => {
+        stdin.write('\u001B'); // Escape
+      });
+      await act(async () => {
+        await waitUntilReady();
+      });
+      await waitFor(() => {
+        expect(mockOnClose).toHaveBeenCalled();
+      });
+      unmount();
+    });
+
+    it('selects model on enter in AFOT view', async () => {
+      const { stdin, waitUntilReady, unmount } = await renderComponent(
+        mockConfig as Config,
+        AuthType.AFOT_AUTH,
+      );
+      await act(async () => {
+        stdin.write('\r'); // Enter
+      });
+      await waitUntilReady();
+      await waitFor(() => {
+        expect(mockSetModel).toHaveBeenCalled();
+      });
+      expect(mockOnClose).toHaveBeenCalled();
       unmount();
     });
   });

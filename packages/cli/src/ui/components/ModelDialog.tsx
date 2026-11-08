@@ -27,8 +27,24 @@ import {
   PREVIEW_GEMINI_3_1_CUSTOM_TOOLS_MODEL,
   isProModel,
   getAutoModelDescription,
+  resolveAfotActiveProviderName,
+  resolveAfotProviderByName,
+  resolveOpenCodeProvider,
+  fetchAfotProviderModels,
+  readAfotConfig,
+  setAfotDefaultProvider,
+  setAfotProviderDefaultModel,
+  getAfotRecentModels,
+  saveAfotRecentModel,
+  toggleAfotFavorite,
 } from '@google/gemini-cli-core';
 import { useKeypress } from '../hooks/useKeypress.js';
+import { useKeyMatchers } from '../hooks/useKeyMatchers.js';
+import { Command } from '../key/keyMatchers.js';
+import { useSearchBuffer } from '../hooks/useSearchBuffer.js';
+import { useSelectionList } from '../hooks/useSelectionList.js';
+import { TextInput } from './shared/TextInput.js';
+import { ProviderConnectDialog } from '../auth/ProviderConnectDialog.js';
 import { theme } from '../semantic-colors.js';
 import { DescriptiveRadioButtonSelect } from './shared/DescriptiveRadioButtonSelect.js';
 import { ConfigContext } from '../contexts/ConfigContext.js';
@@ -38,17 +54,527 @@ interface ModelDialogProps {
   onClose: () => void;
 }
 
-export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
+// ─── OpenCode-style Unified Model Catalog ─────────────────────────────────────
+
+interface UnifiedModelItem {
+  id: string;
+  name: string;
+  displayName: string;
+  providerKey: string;
+  providerName: string;
+  section: string;
+  isFree: boolean;
+  isActiveModel: boolean;
+}
+
+function formatModelName(modelId: string): string {
+  const base = modelId.includes('/') ? modelId.split('/')[1]! : modelId;
+
+  const known: Record<string, string> = {
+    'glm-5.3-flash': 'GLM-5.3-Flash',
+    'glm-5.3-flash-free': 'GLM-5.3-Flash Free',
+    'glm-5.3': 'GLM-5.3',
+    'minimax-m3.1-flash': 'MiniMax-M3.1-Flash',
+    'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash',
+    'deepseek-v4.1-flash-free': 'DeepSeek V4.1 Flash Free',
+    'nemotron-3.5-super-vl-free': 'Nemotron 3.5 Super VL Free',
+    'nemotron-3.5-lightning-free': 'Nemotron 3.5 Lightning Free',
+    'crouton-alpha-free': 'Crouton Alpha Free',
+    'flint-40b-free': 'Flint 40B Free',
+    'iceman-free': 'Iceman Free',
+    'inkling-2-small-free': 'Inkling 2 Small Free',
+    'beam-free': 'Beam Free',
+    'mimo-v2.6-flash-free': 'Mimo V2.6 Flash Free',
+    'claude-fable-5-1': 'Claude Fable 5.1',
+    'claude-haiku-5-5': 'Claude Haiku 5.5',
+    'claude-opus-5-5': 'Claude Opus 5.5',
+    'claude-sonnet-5-5': 'Claude Sonnet 5.5',
+    'gemini-3.5-flash-lite': 'Gemini 3.5 Flash Lite',
+    'gemini-3.8-flash': 'Gemini 3.8 Flash',
+    'gemini-4-argon': 'Gemini 4 Argon',
+    'gpt-5.3-codex': 'GPT 5.3 Codex',
+    'gpt-5.4-mini': 'GPT 5.4 Mini',
+    'gpt-5.5': 'GPT 5.5',
+  };
+
+  if (known[base.toLowerCase()]) {
+    return known[base.toLowerCase()];
+  }
+
+  return base
+    .split(/[-_]/)
+    .map((word) => {
+      if (!word) return '';
+      if (/^(ai|gpt|glm|vl|v\d+(\.\d+)?|b|mb|gb|it)$/i.test(word)) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
+function formatProviderName(id: string): string {
+  const map: Record<string, string> = {
+    opencode: 'OpenCode',
+    nvidia: 'Nvidia',
+    openrouter: 'OpenRouter',
+    anthropic: 'Anthropic',
+    openai: 'OpenAI',
+    'google-ai': 'Google AI',
+    deepseek: 'DeepSeek',
+    groq: 'Groq',
+    mistral: 'Mistral',
+    together: 'Together AI',
+    xai: 'xAI',
+    cohere: 'Cohere',
+    perplexity: 'Perplexity',
+    zai: 'Z.AI',
+    'cline-pass': 'ClinePass',
+    ollama: 'Ollama',
+    lmstudio: 'LM Studio',
+  };
+  return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function isFreeModel(modelId: string, providerKey: string): boolean {
+  if (modelId.toLowerCase().includes('free')) return true;
+  if (providerKey === 'nvidia') return true;
+  return false;
+}
+
+function fuzzyMatch(query: string, target: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  let qi = 0;
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
+const MAX_VISIBLE_MODELS = 11;
+
+function AfotUnifiedModelDialog({
+  onClose,
+}: ModelDialogProps): React.JSX.Element {
+  const config = useContext(ConfigContext);
+  const keyMatchers = useKeyMatchers();
+  const [showConnect, setShowConnect] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchBuffer = useSearchBuffer({ onChange: setSearchQuery });
+  const [catalogVersion, setCatalogVersion] = useState(0);
+  const [_favVersion, setFavVersion] = useState(0);
+  const [liveOpencodeModels, setLiveOpencodeModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    setSearchQuery(searchBuffer.text);
+  }, [searchBuffer.text]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const op = await resolveOpenCodeProvider().catch(() => null);
+        if (!cancelled && op?.models && op.models.length > 0) {
+          setLiveOpencodeModels(op.models.filter(Boolean));
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const activeProvider = resolveAfotActiveProviderName() ?? 'opencode';
+  const currentModel = config?.getModel() ?? '';
+
+  const allItems = useMemo(() => {
+    const afotConf = readAfotConfig();
+    const recents = getAfotRecentModels();
+    const items: UnifiedModelItem[] = [];
+    const recentKeySet = new Set<string>();
+
+    // 1. Build Recent section
+    for (const r of recents) {
+      const name = formatModelName(r.id);
+      const pName = formatProviderName(r.provider);
+      const isFree = isFreeModel(r.id, r.provider);
+      const isActiveModel =
+        (r.id === currentModel ||
+          r.id.endsWith(currentModel) ||
+          currentModel.endsWith(r.id)) &&
+        r.provider === activeProvider;
+
+      items.push({
+        id: r.id,
+        name,
+        displayName: `${name} ${pName}`,
+        providerKey: r.provider,
+        providerName: pName,
+        section: 'Recent',
+        isFree,
+        isActiveModel,
+      });
+      recentKeySet.add(`${r.provider}:${r.id}`);
+    }
+
+    // 2. OpenCode provider section
+    const opencodeModels =
+      liveOpencodeModels.length > 0
+        ? liveOpencodeModels
+        : (afotConf?.providers?.['opencode']?.models ?? []);
+
+    for (const m of opencodeModels) {
+      if (recentKeySet.has(`opencode:${m}`)) continue;
+      const name = formatModelName(m);
+      const isFree = isFreeModel(m, 'opencode');
+      const isActiveModel =
+        (m === currentModel ||
+          m.endsWith(currentModel) ||
+          currentModel.endsWith(m)) &&
+        activeProvider === 'opencode';
+
+      items.push({
+        id: m,
+        name,
+        displayName: name,
+        providerKey: 'opencode',
+        providerName: 'OpenCode',
+        section: 'OpenCode',
+        isFree,
+        isActiveModel,
+      });
+    }
+
+    // 3. Other configured providers
+    if (afotConf?.providers) {
+      for (const [pKey, pConfig] of Object.entries(afotConf.providers)) {
+        if (pKey === 'opencode') continue;
+        const providerModels = pConfig.models ?? [];
+        if (providerModels.length === 0) continue;
+        const pName = formatProviderName(pKey);
+
+        for (const m of providerModels) {
+          if (recentKeySet.has(`${pKey}:${m}`)) continue;
+          const name = formatModelName(m);
+          const isFree = isFreeModel(m, pKey);
+          const isActiveModel =
+            (m === currentModel ||
+              m.endsWith(currentModel) ||
+              currentModel.endsWith(m)) &&
+            activeProvider === pKey;
+
+          items.push({
+            id: m,
+            name,
+            displayName: name,
+            providerKey: pKey,
+            providerName: pName,
+            section: pName,
+            isFree,
+            isActiveModel,
+          });
+        }
+      }
+    }
+
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogVersion, liveOpencodeModels, activeProvider, currentModel]);
+
+  const filteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return allItems;
+    return allItems.filter(
+      (item) =>
+        fuzzyMatch(searchQuery, item.displayName) ||
+        fuzzyMatch(searchQuery, item.id) ||
+        fuzzyMatch(searchQuery, item.providerName) ||
+        fuzzyMatch(searchQuery, item.section),
+    );
+  }, [allItems, searchQuery]);
+
+  const initialIndex = useMemo(() => {
+    const idx = filteredItems.findIndex((it) => it.isActiveModel);
+    return idx >= 0 ? idx : 0;
+  }, [filteredItems]);
+
+  const handleSelectModel = useCallback(
+    async (item: UnifiedModelItem) => {
+      const curProv = resolveAfotActiveProviderName();
+      if (item.providerKey !== curProv) {
+        setAfotDefaultProvider(item.providerKey);
+        if (config?.refreshAuth) {
+          await config.refreshAuth(AuthType.AFOT_AUTH);
+        }
+      }
+      setAfotProviderDefaultModel(item.providerKey, item.id);
+      if (config) {
+        config.setModel(item.id, true);
+        const event = new ModelSlashCommandEvent(item.id);
+        logModelSlashCommand(config, event);
+      }
+      saveAfotRecentModel(item.id, item.providerKey);
+      onClose();
+    },
+    [config, onClose],
+  );
+
+  const selectionItems = useMemo(
+    () =>
+      filteredItems.map((item) => ({
+        key: `${item.section}:${item.providerKey}:${item.id}`,
+        value: item,
+      })),
+    [filteredItems],
+  );
+
+  const { activeIndex } = useSelectionList({
+    items: selectionItems,
+    onSelect: (item) => handleSelectModel(item),
+    initialIndex,
+    isFocused: !showConnect,
+    showNumbers: false,
+    wrapAround: true,
+    priority: true,
+  });
+
+  const [scrollOffset, setScrollOffset] = useState(0);
+  useEffect(() => {
+    if (activeIndex < scrollOffset) setScrollOffset(activeIndex);
+    else if (activeIndex >= scrollOffset + MAX_VISIBLE_MODELS)
+      setScrollOffset(activeIndex - MAX_VISIBLE_MODELS + 1);
+  }, [activeIndex, scrollOffset]);
+
+  useKeypress(
+    (key) => {
+      if (showConnect) return false;
+      if (key.name === 'escape' || keyMatchers[Command.ESCAPE](key)) {
+        onClose();
+        return true;
+      }
+      if (key.ctrl && (key.name === 'a' || key.sequence === '\x01')) {
+        setShowConnect(true);
+        return true;
+      }
+      if (key.ctrl && (key.name === 'f' || key.sequence === '\x06')) {
+        const cur = filteredItems[activeIndex];
+        if (cur) {
+          toggleAfotFavorite(cur.id);
+          setFavVersion((v) => v + 1);
+        }
+        return true;
+      }
+      return false;
+    },
+    { isActive: !showConnect, priority: true },
+  );
+
+  if (showConnect) {
+    return (
+      <ProviderConnectDialog
+        onConnected={(_providerName) => {
+          setShowConnect(false);
+          setCatalogVersion((v) => v + 1);
+        }}
+        onClose={() => setShowConnect(false)}
+      />
+    );
+  }
+
+  const visibleItems = filteredItems.slice(
+    scrollOffset,
+    scrollOffset + MAX_VISIBLE_MODELS,
+  );
+
+  const renderedRows: React.ReactNode[] = [];
+  let lastSection: string | null = null;
+  visibleItems.forEach((entry, visIdx) => {
+    const absIdx = scrollOffset + visIdx;
+    const isSelected = absIdx === activeIndex;
+
+    if (entry.section !== lastSection) {
+      lastSection = entry.section;
+      renderedRows.push(
+        <Box key={`sec-${entry.section}`} paddingTop={visIdx === 0 ? 0 : 1}>
+          <Text bold color="#c084fc">
+            {entry.section}
+          </Text>
+        </Box>,
+      );
+    }
+
+    renderedRows.push(
+      <ModelRow
+        key={`${entry.section}:${entry.providerKey}:${entry.id}`}
+        item={entry}
+        isSelected={isSelected}
+      />,
+    );
+  });
+
+  return (
+    <Box
+      borderStyle="round"
+      borderColor="#2e3830"
+      flexDirection="column"
+      paddingX={2}
+      paddingY={1}
+      width={68}
+    >
+      {/* Header */}
+      <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+        <Text bold color="#22c55e">
+          Select model
+        </Text>
+        <Text color={theme.text.secondary}>esc</Text>
+      </Box>
+
+      {/* Search Input */}
+      <Box marginBottom={1}>
+        <TextInput
+          buffer={searchBuffer}
+          placeholder="Search"
+          focus={!showConnect}
+          onCancel={onClose}
+        />
+      </Box>
+
+      {/* Scroll indicator up */}
+      {scrollOffset > 0 && (
+        <Box paddingLeft={1}>
+          <Text color={theme.text.secondary}>▲</Text>
+        </Box>
+      )}
+
+      {/* Rows */}
+      <Box flexDirection="column">
+        {filteredItems.length === 0 ? (
+          <Box paddingLeft={2} paddingTop={1}>
+            <Text color={theme.text.secondary}>No models found</Text>
+          </Box>
+        ) : (
+          renderedRows
+        )}
+      </Box>
+
+      {/* Scroll indicator down */}
+      {scrollOffset + MAX_VISIBLE_MODELS < filteredItems.length && (
+        <Box paddingLeft={1}>
+          <Text color={theme.text.secondary}>▼</Text>
+        </Box>
+      )}
+
+      {/* Footer */}
+      <Box marginTop={1} flexDirection="row">
+        <Text color="#4ade80">Connect an integration </Text>
+        <Text color={theme.text.secondary}>ctrl+a    </Text>
+        <Text color="#4ade80">Favorite </Text>
+        <Text color={theme.text.secondary}>ctrl+f</Text>
+      </Box>
+    </Box>
+  );
+}
+
+function ModelRow({
+  item,
+  isSelected,
+}: {
+  item: UnifiedModelItem;
+  isSelected: boolean;
+}): React.JSX.Element {
+  const bullet = item.isActiveModel ? '● ' : '  ';
+
+  if (isSelected) {
+    return (
+      <Box
+        backgroundColor="#22c55e"
+        flexDirection="row"
+        justifyContent="space-between"
+        width="100%"
+        paddingX={0}
+      >
+        <Box flexDirection="row">
+          <Text color="#000000" bold>
+            {bullet}
+          </Text>
+          <Text color="#000000" bold>
+            {item.displayName}
+          </Text>
+        </Box>
+        {item.isFree && (
+          <Text color="#000000" bold>
+            Free
+          </Text>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="row" justifyContent="space-between" width="100%">
+      <Box flexDirection="row">
+        <Text color={item.isActiveModel ? '#22c55e' : theme.text.secondary}>
+          {bullet}
+        </Text>
+        <Text color="#4ade80">{item.displayName}</Text>
+      </Box>
+      {item.isFree && <Text color="#4ade80">Free</Text>}
+    </Box>
+  );
+}
+
+// ─── Legacy Model Dialog (Used for non-AFOT auth types / tests) ───────────────
+
+function LegacyModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
   const config = useContext(ConfigContext);
   const settings = useSettings();
   const { terminalWidth } = useUIState();
   const [hasAccessToProModel, setHasAccessToProModel] = useState<boolean>(
     () => !(config?.getProModelNoAccessSync() ?? false),
   );
+  const selectedAuthType = settings.merged.security.auth.selectedType;
   const [view, setView] = useState<'main' | 'manual'>(() =>
-    config?.getProModelNoAccessSync() ? 'manual' : 'main',
+    config?.getProModelNoAccessSync() ||
+    selectedAuthType === AuthType.AFOT_AUTH
+      ? 'manual'
+      : 'main',
   );
   const [persistMode, setPersistMode] = useState(false);
+  const [afotModels, setAfotModels] = useState<string[]>([]);
+  const [afotProviderName, setAfotProviderName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedAuthType !== AuthType.AFOT_AUTH) {
+      setAfotModels([]);
+      setAfotProviderName(null);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const providerName = resolveAfotActiveProviderName();
+      setAfotProviderName(providerName);
+      if (!providerName) {
+        if (!cancelled) setAfotModels([]);
+        return;
+      }
+
+      const models =
+        providerName === 'opencode'
+          ? (await resolveOpenCodeProvider().catch(() => null))?.models ?? []
+          : await fetchAfotProviderModels(
+              resolveAfotProviderByName(providerName),
+            );
+      if (!cancelled) setAfotModels(models.filter(Boolean));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAuthType]);
 
   useEffect(() => {
     async function checkAccess() {
@@ -62,14 +588,11 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     void checkAccess();
   }, [config]);
 
-  // Determine the Preferred Model (read once when the dialog opens).
   const preferredModel = config?.getModel() || GEMINI_MODEL_ALIAS_AUTO;
-
   const shouldShowPreviewModels = config?.getHasAccessToPreviewModel() ?? false;
   const useGemini31 = config?.getGemini31LaunchedSync?.() ?? false;
   const useLatestFlash = config?.hasLatestFlashGAAccess?.() ?? false;
   const useLatestFlashLite = config?.hasLatestFlashLiteGAAccess?.() ?? false;
-  const selectedAuthType = settings.merged.security.auth.selectedType;
   const useCustomToolModel =
     useGemini31 && selectedAuthType === AuthType.AFOT_AUTH;
 
@@ -81,7 +604,6 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
       const def = config
         .getModelConfigService()
         .getModelDefinition(preferredModel);
-      // Only treat as manual selection if it's a visible, non-auto model.
       return def && def.tier !== 'auto' && def.isVisible === true
         ? preferredModel
         : '';
@@ -121,8 +643,8 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     },
     { isActive: true },
   );
+
   const mainOptions = useMemo(() => {
-    // --- DYNAMIC PATH ---
     if (
       config?.getExperimentalDynamicModelConfiguration?.() === true &&
       config.getModelConfigService
@@ -158,7 +680,6 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
       return list;
     }
 
-    // --- LEGACY PATH ---
     const list = [
       {
         value: GEMINI_MODEL_ALIAS_AUTO,
@@ -193,7 +714,14 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
   ]);
 
   const manualOptions = useMemo(() => {
-    // --- DYNAMIC PATH ---
+    if (selectedAuthType === AuthType.AFOT_AUTH) {
+      return afotModels.map((model) => ({
+        value: model,
+        title: model,
+        key: model,
+      }));
+    }
+
     if (
       config?.getExperimentalDynamicModelConfiguration?.() === true &&
       config.getModelConfigService
@@ -218,7 +746,6 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
         }));
     }
 
-    // --- LEGACY PATH ---
     const showGemmaModels = config?.getExperimentalGemma() ?? false;
 
     const options = [
@@ -288,7 +815,6 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     }
 
     if (!hasAccessToProModel) {
-      // Filter out all Pro models for free tier
       return options.filter((option) => !isProModel(option.value));
     }
 
@@ -301,6 +827,8 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     useCustomToolModel,
     hasAccessToProModel,
     config,
+    selectedAuthType,
+    afotModels,
   ]);
 
   const options = useMemo(() => {
@@ -315,7 +843,6 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     });
   }, [view, mainOptions, manualOptions]);
 
-  // Calculate the initial index based on the preferred model.
   const initialIndex = useMemo(() => {
     const idx = options.findIndex((option) => option.value === preferredModel);
     if (idx !== -1) {
@@ -328,7 +855,6 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     return 0;
   }, [preferredModel, options, view]);
 
-  // Handle selection internally (Autonomous Dialog).
   const handleSelect = useCallback(
     (model: string) => {
       if (model === 'Manual') {
@@ -377,7 +903,9 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
       </Box>
       <Box flexDirection="column">
         <Text color={theme.text.secondary}>
-          {'> To use a specific Gemini model on startup, use the --model flag.'}
+          {selectedAuthType === AuthType.AFOT_AUTH && afotProviderName
+            ? `> Provider: ${afotProviderName}. Models discovered live from /models.`
+            : '> To use a specific Gemini model on startup, use the --model flag.'}
         </Text>
       </Box>
       <ModelQuotaDisplay
@@ -389,4 +917,17 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
       </Box>
     </Box>
   );
+}
+
+// ─── Main ModelDialog Export ──────────────────────────────────────────────────
+
+export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
+  const settings = useSettings();
+  const selectedAuthType = settings.merged.security.auth.selectedType;
+
+  if (selectedAuthType === AuthType.AFOT_AUTH) {
+    return <AfotUnifiedModelDialog onClose={onClose} />;
+  }
+
+  return <LegacyModelDialog onClose={onClose} />;
 }

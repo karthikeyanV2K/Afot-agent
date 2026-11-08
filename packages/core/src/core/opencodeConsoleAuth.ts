@@ -259,13 +259,19 @@ export async function fetchOpenCodeConsoleConfig(
     opencodeProv?.settings?.['baseURL'] ??
     `${server}/ai/v1`;
 
-  const models = opencodeProv?.models
-    ? Object.keys(opencodeProv.models)
-    : [
-        'opencode/beam-free',
-        'opencode/pulse-alpha-free',
-        'opencode/deepseek-v4.1-flash-free',
-      ];
+  const modelEntries = opencodeProv?.models
+    ? Object.entries(opencodeProv.models)
+    : [];
+  const enabledModels = modelEntries
+    .filter(([, meta]) => !(meta as { disabled?: boolean })?.disabled)
+    .map(([id]) => id);
+  const rawModels =
+    enabledModels.length > 0 ? enabledModels : modelEntries.map(([id]) => id);
+
+  // Prioritize free models first so free tier accounts work out of the box
+  const freeModels = rawModels.filter((m) => m.endsWith('-free') || m.includes('-free'));
+  const paidModels = rawModels.filter((m) => !m.endsWith('-free') && !m.includes('-free'));
+  const models = [...freeModels, ...paidModels];
 
   return { baseUrl, models, orgId };
 }
@@ -334,10 +340,7 @@ export async function resolveOpenCodeProvider(): Promise<{
   ).catch(() => null);
 
   const baseUrl = consoleConfig?.baseUrl ?? `${OPENCODE_CONSOLE_SERVER}/ai/v1`;
-  const models = consoleConfig?.models ?? [
-    'opencode/beam-free',
-    'opencode/pulse-alpha-free',
-  ];
+  const models = consoleConfig?.models ?? [];
 
   return {
     key: accessToken, // Bearer token used as "api key"

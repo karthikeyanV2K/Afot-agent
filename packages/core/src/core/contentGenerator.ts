@@ -308,25 +308,52 @@ export async function createContentGenerator(
         const { AfotOpenAIContentGenerator } = await import(
           './afotOpenAIContentGenerator.js'
         );
-        const { resolveAfotProvider } = await import('./afotAuthStorage.js');
+        const {
+          resolveAfotProvider,
+          resolveAfotActiveProviderName,
+          fetchAfotProviderModels,
+        } = await import('./afotAuthStorage.js');
         const { resolveOpenCodeProvider } = await import('./opencodeConsoleAuth.js');
 
-        // Check if this is an OpenCode Console session (token may need refresh)
-        const openCodeProvider = await resolveOpenCodeProvider().catch(() => null);
-        const provider = openCodeProvider ?? resolveAfotProvider();
+        const activeProviderName = resolveAfotActiveProviderName();
+        const openCodeProvider =
+          activeProviderName === 'opencode'
+            ? await resolveOpenCodeProvider().catch(() => null)
+            : null;
+        const provider =
+          openCodeProvider ?? resolveAfotProvider();
 
         if (provider) {
+          const liveModels = openCodeProvider
+            ? openCodeProvider.models
+            : await fetchAfotProviderModels(provider);
+          const selectedModel = gcConfig.getModel();
+          const configuredDefault =
+            (provider as import('./afotAuthStorage.js').AfotResolvedProvider).defaultModel;
+          const effectiveModel =
+            selectedModel && liveModels.includes(selectedModel)
+              ? selectedModel
+              : configuredDefault && liveModels.includes(configuredDefault)
+                ? configuredDefault
+                : liveModels[0];
+
+          if (!effectiveModel) {
+            throw new Error(
+              `No live models returned for provider "${provider.name}". Check credentials and provider availability.`,
+            );
+          }
+
           const openAIGenerator = new AfotOpenAIContentGenerator(
             {
               name: provider.name,
               key: provider.key,
               baseUrl: provider.baseUrl,
-              models: provider.models,
+              models: liveModels,
               defaultModel: openCodeProvider
-                ? provider.models?.[0]
+                ? effectiveModel
                 : (provider as import('./afotAuthStorage.js').AfotResolvedProvider).defaultModel,
             },
-            gcConfig.getModel(),
+            effectiveModel,
           );
           return new LoggingContentGenerator(
             new ModelMappingContentGenerator(openAIGenerator, () =>
