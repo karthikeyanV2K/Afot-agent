@@ -97,7 +97,9 @@ const cliConfig = {
   define: {
     __filename: '__chunk_filename',
     __dirname: '__chunk_dirname',
-    'process.env.CLI_VERSION': JSON.stringify(pkg.version),
+    'process.env.CLI_VERSION': JSON.stringify(
+      process.env.CLI_VERSION || '1.1.2',
+    ),
     'process.env.GEMINI_SANDBOX_IMAGE_DEFAULT': JSON.stringify(
       pkg.config?.sandboxImageUri,
     ),
@@ -151,7 +153,9 @@ const a2aServerConfig = {
   define: {
     __filename: '__chunk_filename',
     __dirname: '__chunk_dirname',
-    'process.env.CLI_VERSION': JSON.stringify(pkg.version),
+    'process.env.CLI_VERSION': JSON.stringify(
+      process.env.CLI_VERSION || '1.1.2',
+    ),
     'process.env.NODE_ENV': JSON.stringify(
       process.env.NODE_ENV || 'production',
     ),
