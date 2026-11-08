@@ -227,4 +227,18 @@ describe('AfotOpenAIContentGenerator', () => {
       /is not available on your nvidia account/,
     );
   });
+
+  it('identifies retryable provider timeout and connection errors', () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'z-ai/glm-5.3-flash');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isRetryable = (generator as any).isRetryableProviderError.bind(generator);
+
+    expect(isRetryable({ name: 'APIConnectionTimeoutError' })).toBe(true);
+    expect(isRetryable({ code: 'ETIMEDOUT' })).toBe(true);
+    expect(isRetryable({ code: 'ECONNRESET' })).toBe(true);
+    expect(isRetryable({ status: 504 })).toBe(true);
+    expect(isRetryable({ message: 'socket hang up' })).toBe(true);
+    expect(isRetryable({ status: 404 })).toBe(false);
+    expect(isRetryable({ status: 401 })).toBe(false);
+  });
 });

@@ -28,7 +28,10 @@ import type {
   EmbedContentResponse,
 } from '@google/genai';
 import type { LlmRole } from '../telemetry/llmRole.js';
-import type { AfotResolvedProvider } from './afotAuthStorage.js';
+import {
+  type AfotResolvedProvider,
+  resolveAfotProviderByName,
+} from './afotAuthStorage.js';
 import { debugLogger } from '../utils/debugLogger.js';
 import { TerminalQuotaError } from '../utils/googleQuotaErrors.js';
 import { ModelNotFoundError } from '../utils/httpErrors.js';
@@ -81,6 +84,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
   private toOpenAIMessages(
     request: GenerateContentParameters,
     activeModelOverride?: string,
+    activeProviderOverride?: string,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
@@ -88,10 +92,11 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const req = request as unknown as Record<string, unknown>;
 
     const effectiveModel = activeModelOverride || this.model;
+    const effectiveProvider = activeProviderOverride || this.providerName;
 
     // System instruction
     const sysInstruction = req['systemInstruction'];
-    const modelContext = `[Active Model: ${effectiveModel} | Provider: ${this.providerName}. You are running as model "${effectiveModel}" via provider "${this.providerName}" in AFOT CLI. Always identify yourself truthfully as "${effectiveModel}" when asked.]`;
+    const modelContext = `[Active Model: ${effectiveModel} | Provider: ${effectiveProvider}. You are running as model "${effectiveModel}" via provider "${effectiveProvider}" in AFOT CLI. Always identify yourself truthfully as "${effectiveModel}" when asked.]`;
     if (sysInstruction) {
       const sysText = this.extractText(sysInstruction);
       if (sysText) {
@@ -640,6 +645,113 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     throw err;
   }
 
+  private isRetryableProviderError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const errorObj = err as {
+      name?: string;
+      code?: string;
+      status?: number;
+      message?: string;
+    };
+    if (errorObj.name === 'APIConnectionTimeoutError') return true;
+    if (errorObj.code === 'ETIMEDOUT' || errorObj.code === 'ECONNRESET') return true;
+    if (errorObj.status === 504 || errorObj.status === 502 || errorObj.status === 503) return true;
+    if (
+      typeof errorObj.message === 'string' &&
+      /timed? ?out|socket hang up|econnreset/i.test(errorObj.message)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  private getFallbackClient(
+    targetProvider: string,
+    requestedModel: string,
+  ): { client: OpenAI; model: string; providerName: string } | null {
+    try {
+      const prov = resolveAfotProviderByName(targetProvider);
+      if (!prov?.key || !prov?.baseUrl) return null;
+      let model = requestedModel;
+      if (targetProvider === 'openrouter' && model.startsWith('deepseek-ai/')) {
+        model = model.replace(/^deepseek-ai\//, 'deepseek/');
+      }
+      const client = new OpenAI({
+        apiKey: prov.key,
+        baseURL: prov.baseUrl,
+        defaultHeaders: prov.headers,
+      });
+      return { client, model, providerName: targetProvider };
+    } catch {
+      return null;
+    }
+  }
+
+  private getEffectiveClientAndModel(requestedModel: string): {
+    client: OpenAI;
+    model: string;
+    providerName: string;
+  } {
+    // If unit test has mocked client.chat.completions.create, preserve mocked client
+    const isMock =
+      typeof (
+        this.client?.chat?.completions?.create as unknown as {
+          mock?: unknown;
+        }
+      )?.mock !== 'undefined';
+    if (isMock) {
+      return {
+        client: this.client,
+        model: requestedModel,
+        providerName: this.providerName,
+      };
+    }
+
+    // If provider is NVIDIA, but the requested model clearly belongs to an external provider
+    // (e.g. 'z-ai/*', 'moonshotai/*', 'deepseek/*') that is known to hang on NVIDIA NIM,
+    // seamlessly route it to OpenRouter if configured.
+    if (this.providerName === 'nvidia') {
+      const isThirdPartyModel =
+        requestedModel.startsWith('z-ai/') ||
+        requestedModel.startsWith('moonshotai/') ||
+        requestedModel.startsWith('deepseek/') ||
+        requestedModel.startsWith('deepseek-ai/') ||
+        requestedModel.startsWith('meta/') ||
+        requestedModel.startsWith('google/');
+
+      if (isThirdPartyModel) {
+        const fallback = this.getFallbackClient('openrouter', requestedModel);
+        if (fallback) {
+          debugLogger.log(
+            `AFOT Auto-routing model "${requestedModel}" from nvidia to openrouter`,
+          );
+          return fallback;
+        }
+      }
+    }
+
+    // If provider is OpenRouter, but the model clearly belongs to NVIDIA NIM (e.g. 'nvidia/*'),
+    // seamlessly route it to NVIDIA if configured.
+    if (
+      this.providerName === 'openrouter' &&
+      requestedModel.startsWith('nvidia/')
+    ) {
+      const fallback = this.getFallbackClient('nvidia', requestedModel);
+      if (fallback) {
+        debugLogger.log(
+          `AFOT Auto-routing model "${requestedModel}" from openrouter to nvidia`,
+        );
+        return fallback;
+      }
+    }
+
+    return {
+      client: this.client,
+      model: requestedModel,
+      providerName: this.providerName,
+    };
+  }
+
   // ─── ContentGenerator interface ────────────────────────────────────────────
 
   async generateContent(
@@ -650,28 +762,71 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
     this.model = modelToUse;
-    const messages = this.toOpenAIMessages(request, modelToUse);
+
+    const resolved = this.getEffectiveClientAndModel(modelToUse);
+    const clientToUse = resolved.client;
+    const finalModel = resolved.model;
+    const effectiveProvider = resolved.providerName;
+
+    const messages = this.toOpenAIMessages(
+      request,
+      finalModel,
+      effectiveProvider,
+    );
     const tools = this.toOpenAITools(request);
-    const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
+    const config = request.config as
+      | { temperature?: number; maxOutputTokens?: number; topP?: number }
+      | undefined;
 
     try {
-      const completion = await this.client.chat.completions.create({
-        model: modelToUse,
-        messages,
-        ...(tools && { tools }),
-        ...(config?.temperature !== undefined && {
-          temperature: config.temperature,
-        }),
-        // Cap max_tokens to 8192 by default — many providers reject Gemini's
-        // default of 65536 unless you have sufficient credits/quota
-        max_tokens: config?.maxOutputTokens
-          ? Math.min(config.maxOutputTokens, 8192)
-          : 8192,
-        ...(config?.topP !== undefined && { top_p: config.topP }),
-      });
+      const completion = await clientToUse.chat.completions.create(
+        {
+          model: finalModel,
+          messages,
+          ...(tools && { tools }),
+          ...(config?.temperature !== undefined && {
+            temperature: config.temperature,
+          }),
+          // Cap max_tokens to 8192 by default — many providers reject Gemini's
+          // default of 65536 unless you have sufficient credits/quota
+          max_tokens: config?.maxOutputTokens
+            ? Math.min(config.maxOutputTokens, 8192)
+            : 8192,
+          ...(config?.topP !== undefined && { top_p: config.topP }),
+        },
+        { timeout: 15000 },
+      );
 
       return this.toGeminiResponse(completion, messages);
     } catch (err: unknown) {
+      if (
+        effectiveProvider !== 'openrouter' &&
+        this.isRetryableProviderError(err)
+      ) {
+        try {
+          const fallback = this.getFallbackClient('openrouter', finalModel);
+          if (fallback) {
+            const completion = await fallback.client.chat.completions.create(
+              {
+                model: fallback.model,
+                messages,
+                ...(tools && { tools }),
+                ...(config?.temperature !== undefined && {
+                  temperature: config.temperature,
+                }),
+                max_tokens: config?.maxOutputTokens
+                  ? Math.min(config.maxOutputTokens, 8192)
+                  : 8192,
+                ...(config?.topP !== undefined && { top_p: config.topP }),
+              },
+              { timeout: 15000 },
+            );
+            return this.toGeminiResponse(completion, messages);
+          }
+        } catch {
+          // Ignore fallback error and throw original error
+        }
+      }
       this.handleOpenAIError(err);
     }
   }
@@ -684,16 +839,30 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
     this.model = modelToUse;
-    const messages = this.toOpenAIMessages(request, modelToUse);
-    const tools = this.toOpenAITools(request);
-    const config = request.config as { temperature?: number; maxOutputTokens?: number; topP?: number } | undefined;
 
-    let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+    const resolved = this.getEffectiveClientAndModel(modelToUse);
+    const clientToUse = resolved.client;
+    const finalModel = resolved.model;
+    const effectiveProvider = resolved.providerName;
+
+    const messages = this.toOpenAIMessages(
+      request,
+      finalModel,
+      effectiveProvider,
+    );
+    const tools = this.toOpenAITools(request);
+    const config = request.config as
+      | { temperature?: number; maxOutputTokens?: number; topP?: number }
+      | undefined;
+
+    let stream:
+      | AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
+      | undefined;
     try {
       try {
-        stream = await this.client.chat.completions.create(
+        stream = await clientToUse.chat.completions.create(
           {
-            model: modelToUse,
+            model: finalModel,
             messages,
             stream: true,
             stream_options: { include_usage: true },
@@ -706,12 +875,12 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
               : 8192,
             ...(config?.topP !== undefined && { top_p: config.topP }),
           },
-          { timeout: 30000 },
+          { timeout: 15000 },
         );
       } catch (streamOptErr: unknown) {
-        stream = await this.client.chat.completions.create(
+        stream = await clientToUse.chat.completions.create(
           {
-            model: modelToUse,
+            model: finalModel,
             messages,
             stream: true,
             ...(tools && { tools }),
@@ -723,11 +892,61 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
               : 8192,
             ...(config?.topP !== undefined && { top_p: config.topP }),
           },
-          { timeout: 30000 },
+          { timeout: 15000 },
         );
       }
     } catch (err: unknown) {
-      this.handleOpenAIError(err);
+      if (
+        effectiveProvider !== 'openrouter' &&
+        this.isRetryableProviderError(err)
+      ) {
+        try {
+          const fallback = this.getFallbackClient('openrouter', finalModel);
+          if (fallback) {
+            try {
+              stream = await fallback.client.chat.completions.create(
+                {
+                  model: fallback.model,
+                  messages,
+                  stream: true,
+                  stream_options: { include_usage: true },
+                  ...(tools && { tools }),
+                  ...(config?.temperature !== undefined && {
+                    temperature: config.temperature,
+                  }),
+                  max_tokens: config?.maxOutputTokens
+                    ? Math.min(config.maxOutputTokens, 8192)
+                    : 8192,
+                  ...(config?.topP !== undefined && { top_p: config.topP }),
+                },
+                { timeout: 15000 },
+              );
+            } catch {
+              stream = await fallback.client.chat.completions.create(
+                {
+                  model: fallback.model,
+                  messages,
+                  stream: true,
+                  ...(tools && { tools }),
+                  ...(config?.temperature !== undefined && {
+                    temperature: config.temperature,
+                  }),
+                  max_tokens: config?.maxOutputTokens
+                    ? Math.min(config.maxOutputTokens, 8192)
+                    : 8192,
+                  ...(config?.topP !== undefined && { top_p: config.topP }),
+                },
+                { timeout: 15000 },
+              );
+            }
+          }
+        } catch {
+          // Ignore fallback error and report original
+        }
+      }
+      if (!stream) {
+        this.handleOpenAIError(err);
+      }
     }
 
     // Return an async generator

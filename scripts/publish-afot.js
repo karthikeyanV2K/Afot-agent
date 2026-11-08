@@ -36,7 +36,10 @@ const sourceBundleDir = path.resolve(rootDir, 'bundle');
 if (fs.existsSync(sourceBundleDir)) {
   fs.rmSync(sourceBundleDir, { recursive: true, force: true });
 }
-execSync('npm run bundle', { stdio: 'inherit', cwd: rootDir });
+execSync(
+  'npm run build --workspace=@google/gemini-cli-core && npm run bundle',
+  { stdio: 'inherit', cwd: rootDir },
+);
 
 console.log('--- 2. Backing up packages/cli/package.json ---');
 fs.copyFileSync(cliPkgPath, cliPkgBakPath);
@@ -67,7 +70,7 @@ try {
 
   const cliPkg = JSON.parse(fs.readFileSync(cliPkgPath, 'utf-8'));
   cliPkg.name = 'afot-cli';
-  cliPkg.version = '1.1.5';
+  cliPkg.version = '1.1.8';
   cliPkg.description =
     'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
   cliPkg.files = ['bundle/', 'README.md', 'LICENSE'];
