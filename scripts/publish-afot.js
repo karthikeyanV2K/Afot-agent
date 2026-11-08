@@ -13,6 +13,24 @@ const cliDir = path.resolve(rootDir, 'packages/cli');
 const cliPkgPath = path.resolve(cliDir, 'package.json');
 const cliPkgBakPath = path.resolve(cliDir, 'package.json.bak');
 
+if (process.argv.includes('--restore')) {
+  console.log('--- Restoring packages/cli/package.json ---');
+  if (fs.existsSync(cliPkgBakPath)) {
+    fs.copyFileSync(cliPkgBakPath, cliPkgPath);
+    fs.rmSync(cliPkgBakPath);
+  }
+  const destBundleDir = path.resolve(cliDir, 'bundle');
+  if (fs.existsSync(destBundleDir)) {
+    fs.rmSync(destBundleDir, { recursive: true, force: true });
+  }
+  const cliReadme = path.resolve(cliDir, 'README.md');
+  if (fs.existsSync(cliReadme)) fs.rmSync(cliReadme);
+  const cliLicense = path.resolve(cliDir, 'LICENSE');
+  if (fs.existsSync(cliLicense)) fs.rmSync(cliLicense);
+  console.log('Restored packages/cli successfully.');
+  process.exit(0);
+}
+
 console.log('--- 1. Ensuring fresh clean bundle ---');
 const sourceBundleDir = path.resolve(rootDir, 'bundle');
 if (fs.existsSync(sourceBundleDir)) {
@@ -84,27 +102,51 @@ try {
   console.log('--- 4. Testing package with npm pack --dry-run ---');
   execSync('npm pack --dry-run', { stdio: 'inherit', cwd: cliDir });
 
-  if (process.argv.includes('--publish')) {
+  const isPrepareOnly = process.argv.includes('--prepare');
+  if (isPrepareOnly) {
+    console.log('\nPackage prepared in packages/cli! You can now run:');
+    console.log('  cd packages/cli');
+    console.log('  npm publish --access public');
+    console.log('And enter your 2FA OTP code directly when prompted.\n');
+  } else if (process.argv.includes('--publish')) {
     console.log('--- 5. Publishing to npm registry ---');
+    const tokenArg = process.argv.find((arg) => arg.startsWith('--token='));
+    const token = tokenArg ? tokenArg.split('=')[1] : process.env.NPM_TOKEN;
+    const cliNpmrc = path.resolve(cliDir, '.npmrc');
+
+    if (token) {
+      console.log('Using configured npm auth token...');
+      fs.writeFileSync(cliNpmrc, `//registry.npmjs.org/:_authToken=${token.trim()}\n`);
+    }
+
     const otpArg = process.argv.find((arg) => arg.startsWith('--otp='));
     const otpFlag = otpArg ? ` ${otpArg}` : '';
-    execSync(`npm publish --access public${otpFlag}`, { stdio: 'inherit', cwd: cliDir });
-    console.log('🎉 Successfully published afot to npm registry!');
+    try {
+      execSync(`npm publish --access public${otpFlag}`, { stdio: 'inherit', cwd: cliDir });
+      console.log('🎉 Successfully published afot to npm registry!');
+    } finally {
+      if (fs.existsSync(cliNpmrc)) {
+        fs.rmSync(cliNpmrc, { force: true });
+      }
+    }
   } else {
     console.log('\nDry run complete! Run with --publish to publish live to npm.');
   }
 } finally {
-  console.log('--- Restoring packages/cli/package.json ---');
-  if (fs.existsSync(cliPkgBakPath)) {
-    fs.copyFileSync(cliPkgBakPath, cliPkgPath);
-    fs.rmSync(cliPkgBakPath);
+  const isPrepareOnly = process.argv.includes('--prepare');
+  if (!isPrepareOnly) {
+    console.log('--- Restoring packages/cli/package.json ---');
+    if (fs.existsSync(cliPkgBakPath)) {
+      fs.copyFileSync(cliPkgBakPath, cliPkgPath);
+      fs.rmSync(cliPkgBakPath);
+    }
+    const destBundleDir = path.resolve(cliDir, 'bundle');
+    if (fs.existsSync(destBundleDir)) {
+      fs.rmSync(destBundleDir, { recursive: true, force: true });
+    }
+    const cliReadme = path.resolve(cliDir, 'README.md');
+    if (fs.existsSync(cliReadme)) fs.rmSync(cliReadme);
+    const cliLicense = path.resolve(cliDir, 'LICENSE');
+    if (fs.existsSync(cliLicense)) fs.rmSync(cliLicense);
   }
-  const destBundleDir = path.resolve(cliDir, 'bundle');
-  if (fs.existsSync(destBundleDir)) {
-    fs.rmSync(destBundleDir, { recursive: true, force: true });
-  }
-  const cliReadme = path.resolve(cliDir, 'README.md');
-  if (fs.existsSync(cliReadme)) fs.rmSync(cliReadme);
-  const cliLicense = path.resolve(cliDir, 'LICENSE');
-  if (fs.existsSync(cliLicense)) fs.rmSync(cliLicense);
 }
