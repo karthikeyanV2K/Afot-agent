@@ -421,32 +421,44 @@ export async function fetchAfotProviderModels(
   if (!resolved?.baseUrl) return [];
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     const response = await fetch(`${resolved.baseUrl.replace(/\/+$/, '')}/models`, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${resolved.key}`,
         ...resolved.headers,
       },
-    });
-    if (!response.ok) return [];
-    const body = await response.json() as {
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+
+    if (!response.ok) {
+      return sortAfotModels(filterAfotChatModels(resolved.models ?? []));
+    }
+    const body = (await response.json()) as {
       data?: Array<{ id?: unknown }>;
       models?: Record<string, unknown> | string[];
     };
     const ids = Array.isArray(body.data)
-      ? body.data.map((model) => model.id).filter(
-          (id): id is string => typeof id === 'string' && id.length > 0,
-        )
+      ? body.data
+          .map((model) => model.id)
+          .filter(
+            (id): id is string => typeof id === 'string' && id.length > 0,
+          )
       : [];
     if (ids.length === 0 && Array.isArray(body.models)) {
-      ids.push(...body.models.filter((id): id is string =>
-        typeof id === 'string' && id.length > 0));
+      ids.push(
+        ...body.models.filter(
+          (id): id is string => typeof id === 'string' && id.length > 0,
+        ),
+      );
     } else if (ids.length === 0 && body.models && typeof body.models === 'object') {
       ids.push(...Object.keys(body.models));
     }
-    return sortAfotModels(filterAfotChatModels(Array.from(new Set(ids))));
+    const combined = Array.from(new Set([...ids, ...(resolved.models ?? [])]));
+    return sortAfotModels(filterAfotChatModels(combined));
   } catch {
-    return [];
+    return sortAfotModels(filterAfotChatModels(resolved.models ?? []));
   }
 }
 
@@ -457,18 +469,22 @@ export async function findExecutableAfotModel(
   models: readonly string[],
   limit = Number.POSITIVE_INFINITY,
 ): Promise<string | undefined> {
+  const candidateModels = [
+    ...(provider.defaultModel ? [provider.defaultModel] : []),
+    ...models.filter((m) => m !== provider.defaultModel),
+  ];
+
+  if (candidateModels.length === 0) {
+    return undefined;
+  }
+
   if (provider.name !== 'nvidia' && provider.name !== 'openrouter') {
-    return models[0];
+    return candidateModels[0] ?? models[0];
   }
 
   const cacheKey = `${provider.name}:${provider.key}`;
   const cached = executableModelCache.get(cacheKey);
   if (cached && models.includes(cached)) return cached;
-
-  const candidateModels = [
-    ...(provider.defaultModel ? [provider.defaultModel] : []),
-    ...models.filter((m) => m !== provider.defaultModel),
-  ];
 
   for (const model of candidateModels.slice(0, limit)) {
     const controller = new AbortController();
@@ -498,7 +514,7 @@ export async function findExecutableAfotModel(
         return model;
       }
       if (response.status === 401 || response.status === 403 || response.status === 429) {
-        return undefined;
+        return candidateModels[0] ?? models[0];
       }
     } catch {
       // Try the next catalog entry; provider-specific 404s do not indicate availability of later models.
@@ -506,7 +522,7 @@ export async function findExecutableAfotModel(
       clearTimeout(timeout);
     }
   }
-  return undefined;
+  return candidateModels[0] ?? models[0];
 }
 
 export function setAfotProviderModels(

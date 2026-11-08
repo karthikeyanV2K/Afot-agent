@@ -327,29 +327,52 @@ export async function createContentGenerator(
           const liveModels = openCodeProvider
             ? openCodeProvider.models
             : await fetchAfotProviderModels(provider);
+          const fallbackModels =
+            (provider as import('./afotAuthStorage.js').AfotResolvedProvider).models ?? [];
+          const allModels =
+            liveModels && liveModels.length > 0
+              ? Array.from(new Set([...liveModels, ...fallbackModels]))
+              : fallbackModels;
           const selectedModel = gcConfig.getModel();
           const configuredDefault =
             (provider as import('./afotAuthStorage.js').AfotResolvedProvider).defaultModel;
-          const matchedSelected = selectedModel
-            ? liveModels.find(
+
+          let effectiveModel: string | undefined;
+
+          // 1. Try to match user-selected model
+          if (
+            selectedModel &&
+            selectedModel !== 'auto' &&
+            !selectedModel.startsWith('gemini-')
+          ) {
+            effectiveModel =
+              allModels.find(
                 (m) =>
                   m === selectedModel ||
                   m.toLowerCase() === selectedModel.toLowerCase() ||
                   m.toLowerCase().endsWith(`/${selectedModel.toLowerCase()}`) ||
-                  selectedModel.toLowerCase().endsWith(`/${m.toLowerCase()}`),
-              )
-            : undefined;
-          const matchedDefault = configuredDefault
-            ? liveModels.find(
+                  selectedModel.toLowerCase().endsWith(`/${m.toLowerCase()}`) ||
+                  m.replace(/-free$/, '').toLowerCase() === selectedModel.replace(/-free$/, '').toLowerCase(),
+              ) || selectedModel;
+          }
+
+          // 2. Try to match configured default model
+          if (!effectiveModel && configuredDefault) {
+            effectiveModel =
+              allModels.find(
                 (m) =>
                   m === configuredDefault ||
                   m.toLowerCase() === configuredDefault.toLowerCase() ||
                   m.toLowerCase().endsWith(`/${configuredDefault.toLowerCase()}`) ||
-                  configuredDefault.toLowerCase().endsWith(`/${m.toLowerCase()}`),
-              )
-            : undefined;
-          const effectiveModel =
-            matchedSelected ?? matchedDefault ?? liveModels[0];
+                  configuredDefault.toLowerCase().endsWith(`/${m.toLowerCase()}`) ||
+                  m.replace(/-free$/, '').toLowerCase() === configuredDefault.replace(/-free$/, '').toLowerCase(),
+              ) || configuredDefault;
+          }
+
+          // 3. Fallback to first available model
+          if (!effectiveModel) {
+            effectiveModel = allModels[0];
+          }
 
           if (!effectiveModel) {
             throw new Error(
@@ -362,7 +385,7 @@ export async function createContentGenerator(
               name: provider.name,
               key: provider.key,
               baseUrl: provider.baseUrl,
-              models: liveModels,
+              models: allModels,
               defaultModel: openCodeProvider
                 ? effectiveModel
                 : (provider as import('./afotAuthStorage.js').AfotResolvedProvider).defaultModel,

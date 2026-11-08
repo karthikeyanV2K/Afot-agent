@@ -230,10 +230,44 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     return '';
   }
 
+  private estimateTokensFromText(text: string): number {
+    if (!text) return 0;
+    const nonAsciiMatch = text.match(/[^\x00-\x7F]/g);
+    const nonAsciiCount = nonAsciiMatch ? nonAsciiMatch.length : 0;
+    const asciiCount = text.length - nonAsciiCount;
+    const codeSymbols = (text.match(/[{}\[\]();:<>=+\-*\/&|!^%~,"'\s]/g) || []).length;
+    const isCodeHeavy = codeSymbols / text.length > 0.3;
+    const charsPerToken = isCodeHeavy ? 3.2 : 3.6;
+    const asciiTokens = Math.ceil(asciiCount / charsPerToken);
+    const nonAsciiTokens = Math.ceil(nonAsciiCount * 1.3);
+    return Math.max(1, asciiTokens + nonAsciiTokens);
+  }
+
+  private estimateTokensFromMessages(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  ): number {
+    let tokens = 0;
+    for (const msg of messages) {
+      tokens += 4;
+      const content = (msg as { content?: unknown }).content;
+      if (typeof content === 'string') {
+        tokens += this.estimateTokensFromText(content);
+      } else if (content && typeof content === 'object') {
+        try {
+          tokens += this.estimateTokensFromText(JSON.stringify(content));
+        } catch {
+          tokens += 10;
+        }
+      }
+    }
+    return Math.max(1, tokens);
+  }
+
   // ─── Translation: OpenAI → Gemini ──────────────────────────────────────────
 
   private toGeminiResponse(
     completion: OpenAI.Chat.Completions.ChatCompletion,
+    messages?: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   ): GenerateContentResponse {
     const choice = completion.choices[0];
     if (!choice) {
@@ -274,6 +308,23 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       }
     }
 
+    let promptTokens = completion.usage?.prompt_tokens ?? 0;
+    let candidatesTokens = completion.usage?.completion_tokens ?? 0;
+    let totalTokens = completion.usage?.total_tokens ?? 0;
+    const cachedTokens =
+      (completion.usage as unknown as { prompt_tokens_details?: { cached_tokens?: number } })
+        ?.prompt_tokens_details?.cached_tokens ?? 0;
+
+    if (promptTokens === 0 && messages) {
+      promptTokens = this.estimateTokensFromMessages(messages);
+    }
+    if (candidatesTokens === 0 && rawContent) {
+      candidatesTokens = this.estimateTokensFromText(rawContent);
+    }
+    if (totalTokens === 0) {
+      totalTokens = promptTokens + candidatesTokens;
+    }
+
     return {
       candidates: [
         {
@@ -285,13 +336,13 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           index: 0,
         },
       ],
-      usageMetadata: completion.usage
-        ? {
-            promptTokenCount: completion.usage.prompt_tokens ?? 0,
-            candidatesTokenCount: completion.usage.completion_tokens ?? 0,
-            totalTokenCount: completion.usage.total_tokens ?? 0,
-          }
-        : undefined,
+      usageMetadata: {
+        promptTokenCount: promptTokens,
+        candidatesTokenCount: candidatesTokens,
+        totalTokenCount: totalTokens,
+        cachedContentTokenCount: cachedTokens,
+      },
+      modelVersion: completion.model || undefined,
     } as unknown as GenerateContentResponse;
   }
 
@@ -318,24 +369,9 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         ? requestedModel.trim().replace(/^models\//, '')
         : this.model;
 
-    const available = this.provider.models;
+    const available = this.provider.models ?? [];
     if (!available || available.length === 0) {
       return raw || this.model;
-    }
-
-    // Special provider guard: Nvidia NIM upstream has z-ai/glm-5.3-flash offline
-    if (this.providerName === 'nvidia') {
-      if (
-        raw === 'z-ai/glm-5.3-flash' ||
-        raw === 'glm-5.3-flash' ||
-        raw === 'glm-5.3-flash-free' ||
-        raw.includes('glm-5.3-flash')
-      ) {
-        const nemotron = available.find((m: string) =>
-          m.includes('nemotron-3.5-super-vl'),
-        );
-        if (nemotron) return nemotron;
-      }
     }
 
     if (available.includes(raw)) {
@@ -354,11 +390,16 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const matched = available.find((m: string) => {
       const normM = m.replace(/-free$/, '').toLowerCase();
       const baseM = normM.includes('/') ? normM.split('/')[1]! : normM;
-      return baseM === rawBase;
+      return baseM === rawBase || normM === normalizedRaw || m.toLowerCase() === raw.toLowerCase();
     });
 
     if (matched) {
       return matched;
+    }
+
+    // If explicit custom model requested by user (not default gemini alias), trust user's model
+    if (raw && !raw.startsWith('gemini-') && raw !== 'auto') {
+      return raw;
     }
 
     if (this.model && available.includes(this.model)) {
@@ -467,7 +508,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         ...(config?.topP !== undefined && { top_p: config.topP }),
       });
 
-      return this.toGeminiResponse(completion);
+      return this.toGeminiResponse(completion, messages);
     } catch (err: unknown) {
       const errObj = err as { status?: number; message?: string; error?: { message?: string } };
       const msg = errObj?.error?.message || errObj?.message || '';
@@ -494,7 +535,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
                 : 8192,
               ...(config?.topP !== undefined && { top_p: config.topP }),
             });
-            return this.toGeminiResponse(completion);
+            return this.toGeminiResponse(completion, messages);
           } catch (retryErr) {
             this.handleOpenAIError(retryErr);
           }
@@ -518,19 +559,36 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
     let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
     try {
-      stream = await this.client.chat.completions.create({
-        model: modelToUse,
-        messages,
-        stream: true,
-        ...(tools && { tools }),
-        ...(config?.temperature !== undefined && {
-          temperature: config.temperature,
-        }),
-        max_tokens: config?.maxOutputTokens
-          ? Math.min(config.maxOutputTokens, 8192)
-          : 8192,
-        ...(config?.topP !== undefined && { top_p: config.topP }),
-      });
+      try {
+        stream = await this.client.chat.completions.create({
+          model: modelToUse,
+          messages,
+          stream: true,
+          stream_options: { include_usage: true },
+          ...(tools && { tools }),
+          ...(config?.temperature !== undefined && {
+            temperature: config.temperature,
+          }),
+          max_tokens: config?.maxOutputTokens
+            ? Math.min(config.maxOutputTokens, 8192)
+            : 8192,
+          ...(config?.topP !== undefined && { top_p: config.topP }),
+        });
+      } catch (streamOptErr: unknown) {
+        stream = await this.client.chat.completions.create({
+          model: modelToUse,
+          messages,
+          stream: true,
+          ...(tools && { tools }),
+          ...(config?.temperature !== undefined && {
+            temperature: config.temperature,
+          }),
+          max_tokens: config?.maxOutputTokens
+            ? Math.min(config.maxOutputTokens, 8192)
+            : 8192,
+          ...(config?.topP !== undefined && { top_p: config.topP }),
+        });
+      }
     } catch (err: unknown) {
       const errObj = err as { status?: number; message?: string; error?: { message?: string } };
       const msg = errObj?.error?.message || errObj?.message || '';
@@ -549,6 +607,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
               model: fallback,
               messages,
               stream: true,
+              stream_options: { include_usage: true },
               ...(tools && { tools }),
               ...(config?.temperature !== undefined && {
                 temperature: config.temperature,
@@ -578,10 +637,32 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         function: { name: string; arguments: string };
       }> = [];
       let finishReason: string | null = null;
+      let promptTokensFromStream: number | undefined;
+      let completionTokensFromStream: number | undefined;
+      let totalTokensFromStream: number | undefined;
+      let cachedTokensFromStream: number | undefined;
 
       try {
         for await (const chunk of stream) {
-          const choice = chunk.choices[0];
+          if (chunk.usage) {
+            const usage = chunk.usage;
+            if (typeof usage.prompt_tokens === 'number') {
+              promptTokensFromStream = usage.prompt_tokens;
+            }
+            if (typeof usage.completion_tokens === 'number') {
+              completionTokensFromStream = usage.completion_tokens;
+            }
+            if (typeof usage.total_tokens === 'number') {
+              totalTokensFromStream = usage.total_tokens;
+            }
+            const promptDetails = (usage as unknown as { prompt_tokens_details?: { cached_tokens?: number } })
+              ?.prompt_tokens_details;
+            if (typeof promptDetails?.cached_tokens === 'number') {
+              cachedTokensFromStream = promptDetails.cached_tokens;
+            }
+          }
+
+          const choice = chunk.choices?.[0];
           const delta = choice?.delta;
           if (!delta && !choice) continue;
 
@@ -641,7 +722,31 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         self.handleOpenAIError(err);
       }
 
-      // If there were tool calls, emit a final response with them
+      const computeFinalUsage = () => {
+        let promptTokens = promptTokensFromStream ?? 0;
+        let candidatesTokens = completionTokensFromStream ?? 0;
+        let totalTokens = totalTokensFromStream ?? 0;
+        const cachedTokens = cachedTokensFromStream ?? 0;
+
+        if (promptTokens === 0) {
+          promptTokens = self.estimateTokensFromMessages(messages);
+        }
+        if (candidatesTokens === 0 && accumulatedText) {
+          candidatesTokens = self.estimateTokensFromText(accumulatedText);
+        }
+        if (totalTokens === 0) {
+          totalTokens = promptTokens + candidatesTokens;
+        }
+
+        return {
+          promptTokenCount: promptTokens,
+          candidatesTokenCount: candidatesTokens,
+          totalTokenCount: totalTokens,
+          cachedContentTokenCount: cachedTokens,
+        };
+      };
+
+      // If there were tool calls, emit a final response with them and usageMetadata
       if (accumulatedToolCalls.length > 0) {
         const parts: GeminiPart[] = [];
         if (accumulatedText) parts.push({ text: accumulatedText });
@@ -668,17 +773,19 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
               index: 0,
             },
           ],
+          usageMetadata: computeFinalUsage(),
         } as unknown as GenerateContentResponse;
-      } else if (!finishReason) {
-        // Guarantee at least one finish reason is emitted so geminiChat stream validation passes
+      } else {
+        // Emit final closing response with finishReason and usageMetadata
         yield {
           candidates: [
             {
               content: { role: 'model', parts: [] },
-              finishReason: 'STOP',
+              finishReason: self.mapFinishReason(finishReason ?? 'stop'),
               index: 0,
             },
           ],
+          usageMetadata: computeFinalUsage(),
         } as unknown as GenerateContentResponse;
       }
     })();
