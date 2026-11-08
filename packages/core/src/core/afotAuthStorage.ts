@@ -612,10 +612,15 @@ export const BUILTIN_PROVIDERS: Record<
   nvidia: {
     baseUrl: 'https://integrate.api.nvidia.com/v1',
     models: [
+      'z-ai/glm-5.3-flash',
+      'glm-5.3-flash',
       'nvidia/llama-3.1-nemotron-70b-instruct',
       'nvidia/llama-3.3-nemotron-super-49b-v1',
+      'meta/llama-3.3-70b-instruct',
       'meta/llama-4-maverick-17b-128e-instruct',
       'deepseek-ai/deepseek-r1-0528',
+      'qwen/qwen2.5-coder-32b-instruct',
+      'minimax/minimax-m3.1-flash',
     ],
   },
   anthropic: {

@@ -64,10 +64,13 @@ export async function getEnvironmentContext(config: Config): Promise<Part[]> {
   // - Tier 2 (extension + project): first user message (here)
   // - Tier 3 (subdirectory): tool output (JIT)
   const environmentMemory = config.getSessionMemory();
+  const activeModel =
+    config.getActiveModel?.() || config.getModel?.() || 'default';
 
   const context = `
 <session_context>
 This is AFOT CLI. We are setting up the context for our chat.
+Active model: ${activeModel}
 Today's date is ${today} (formatted according to the user's locale).
 My operating system is: ${platform}
 The project's temporary directory is: ${tempDir}

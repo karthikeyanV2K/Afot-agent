@@ -330,12 +330,26 @@ export async function createContentGenerator(
           const selectedModel = gcConfig.getModel();
           const configuredDefault =
             (provider as import('./afotAuthStorage.js').AfotResolvedProvider).defaultModel;
+          const matchedSelected = selectedModel
+            ? liveModels.find(
+                (m) =>
+                  m === selectedModel ||
+                  m.toLowerCase() === selectedModel.toLowerCase() ||
+                  m.toLowerCase().endsWith(`/${selectedModel.toLowerCase()}`) ||
+                  selectedModel.toLowerCase().endsWith(`/${m.toLowerCase()}`),
+              )
+            : undefined;
+          const matchedDefault = configuredDefault
+            ? liveModels.find(
+                (m) =>
+                  m === configuredDefault ||
+                  m.toLowerCase() === configuredDefault.toLowerCase() ||
+                  m.toLowerCase().endsWith(`/${configuredDefault.toLowerCase()}`) ||
+                  configuredDefault.toLowerCase().endsWith(`/${m.toLowerCase()}`),
+              )
+            : undefined;
           const effectiveModel =
-            selectedModel && liveModels.includes(selectedModel)
-              ? selectedModel
-              : configuredDefault && liveModels.includes(configuredDefault)
-                ? configuredDefault
-                : liveModels[0];
+            matchedSelected ?? matchedDefault ?? liveModels[0];
 
           if (!effectiveModel) {
             throw new Error(

@@ -88,11 +88,16 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
     // System instruction
     const sysInstruction = req['systemInstruction'];
+    const modelContext = `[Active Model: ${this.model} | Provider: ${this.providerName}]`;
     if (sysInstruction) {
       const sysText = this.extractText(sysInstruction);
       if (sysText) {
-        messages.push({ role: 'system', content: sysText });
+        messages.push({ role: 'system', content: `${sysText}\n\n${modelContext}` });
+      } else {
+        messages.push({ role: 'system', content: modelContext });
       }
+    } else {
+      messages.push({ role: 'system', content: modelContext });
     }
 
     // Contents → messages
