@@ -15,3 +15,4 @@ IF EXIST "%dp0%\..\packages\cli\dist\index.js" (
 )
 
 endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "node" "%_prog%" %*
+

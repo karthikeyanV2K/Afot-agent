@@ -14,3 +14,4 @@ if [ -x "$basedir/node" ]; then
 else
   exec node "$basedir/../packages/cli/dist/index.js" "$@"
 fi
+

@@ -78,7 +78,19 @@ Launch the interactive model switcher anytime inside the TUI:
 
 ## 🚀 Global Installation & Executable
 
-You can install `afot` globally across your system so you can launch it from any directory or terminal:
+You can install `afot` globally via npm so you can launch it from any directory or terminal:
+
+```bash
+npm install -g afot
+```
+
+Or run directly without installing:
+
+```bash
+npx afot
+```
+
+From source or local development:
 
 ```bash
 # Link the CLI binary globally
