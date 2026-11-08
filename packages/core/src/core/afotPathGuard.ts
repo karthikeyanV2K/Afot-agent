@@ -131,11 +131,11 @@ export function isPathAllowed(targetPath: string): boolean {
   }
 
   // Always allow inside session root
-  if (isSubpath(real, _sessionRoot)) return true;
+  if (isSubpath(_sessionRoot, real)) return true;
 
   // Check grants
   for (const grant of _grants) {
-    if (isSubpath(real, grant.realPath)) return true;
+    if (isSubpath(grant.realPath, real)) return true;
   }
 
   return false;

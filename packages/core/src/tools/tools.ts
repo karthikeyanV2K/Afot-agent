@@ -210,6 +210,20 @@ export abstract class BaseToolInvocation<
     }
 
     const grantTarget = normalizeGrantTarget(targetPath);
+
+    // If no listener is listening for path permission requests (e.g. headless/non-interactive),
+    // deny immediately rather than hanging indefinitely.
+    if (
+      typeof (this.messageBus as { listenerCount?: unknown }).listenerCount === 'function' &&
+      this.messageBus.listenerCount(MessageBusType.PATH_PERMISSION_REQUEST) === 0
+    ) {
+      throw Object.assign(
+        new Error(
+          `Access to "${grantTarget}" was denied. The path is outside the session directory and no interactive confirmation UI is active.`,
+        ),
+        { toolErrorType: ToolErrorType.USER_DENIED },
+      );
+    }
     const correlationId = randomUUID();
 
     const decision = await new Promise<PathPermissionDecision>(
