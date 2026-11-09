@@ -70,7 +70,7 @@ try {
 
   const cliPkg = JSON.parse(fs.readFileSync(cliPkgPath, 'utf-8'));
   cliPkg.name = 'afot-cli';
-  cliPkg.version = '1.2.1';
+  cliPkg.version = '1.2.2';
   cliPkg.description =
     'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
   cliPkg.files = ['bundle/', 'README.md', 'LICENSE'];

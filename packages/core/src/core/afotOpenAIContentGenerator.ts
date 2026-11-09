@@ -560,23 +560,34 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       return raw || this.model;
     }
 
+    const providerStripped = raw
+      .replace(/^openrouter\//i, '')
+      .replace(/^opencode\//i, '');
+
     if (available.includes(raw)) {
       return raw;
     }
+    if (available.includes(providerStripped)) {
+      return providerStripped;
+    }
 
     // Attempt base name matching between providers (e.g. glm-5.3-flash-free <-> z-ai/glm-5.3-flash)
-    const normalizedRaw = raw
-      .replace(/^models\//, '')
+    const normalizedRaw = providerStripped
       .replace(/-free$/, '')
       .toLowerCase();
     const rawBase = normalizedRaw.includes('/')
-      ? normalizedRaw.split('/')[1]!
+      ? normalizedRaw.split('/').pop()!
       : normalizedRaw;
 
     const matched = available.find((m: string) => {
       const normM = m.replace(/-free$/, '').toLowerCase();
-      const baseM = normM.includes('/') ? normM.split('/')[1]! : normM;
-      return baseM === rawBase || normM === normalizedRaw || m.toLowerCase() === raw.toLowerCase();
+      const baseM = normM.includes('/') ? normM.split('/').pop()! : normM;
+      return (
+        baseM === rawBase ||
+        normM === normalizedRaw ||
+        m.toLowerCase() === raw.toLowerCase() ||
+        m.toLowerCase() === providerStripped.toLowerCase()
+      );
     });
 
     if (matched) {
@@ -585,7 +596,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
     // If explicit custom model requested by user (not default gemini alias), trust user's model
     if (raw && !raw.startsWith('gemini-') && raw !== 'auto') {
-      return raw;
+      return providerStripped;
     }
 
     if (this.model && available.includes(this.model)) {
@@ -594,7 +605,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     return this.provider.defaultModel &&
       available.includes(this.provider.defaultModel)
       ? this.provider.defaultModel
-      : available[0] ?? raw;
+      : available[0] ?? providerStripped;
   }
 
   private handleOpenAIError(err: unknown): never {
@@ -709,6 +720,11 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       const prov = resolveAfotProviderByName(targetProvider);
       if (!prov?.key || !prov?.baseUrl) return null;
       let model = requestedModel;
+      if (model.startsWith('openrouter/')) {
+        model = model.replace(/^openrouter\//i, '');
+      } else if (model.startsWith('opencode/')) {
+        model = model.replace(/^opencode\//i, '');
+      }
       if (targetProvider === 'openrouter' && model.startsWith('deepseek-ai/')) {
         model = model.replace(/^deepseek-ai\//, 'deepseek/');
       }
@@ -743,23 +759,89 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       };
     }
 
+    // 1. Explicit openrouter/ prefix -> route or normalize to OpenRouter
+    if (requestedModel.startsWith('openrouter/')) {
+      const bareModel = requestedModel.replace(/^openrouter\//i, '');
+      const cleanModel = bareModel.startsWith('deepseek-ai/')
+        ? bareModel.replace(/^deepseek-ai\//, 'deepseek/')
+        : bareModel;
+      if (this.providerName === 'openrouter') {
+        return {
+          client: this.client,
+          model: cleanModel,
+          providerName: 'openrouter',
+        };
+      }
+      const fallback = this.getFallbackClient('openrouter', cleanModel);
+      if (fallback) {
+        debugLogger.log(
+          `AFOT Auto-routing model "${requestedModel}" to openrouter as "${cleanModel}"`,
+        );
+        return fallback;
+      }
+    }
+
+    // 2. Explicit opencode/ prefix -> route or normalize to OpenCode
+    if (requestedModel.startsWith('opencode/')) {
+      const bareModel = requestedModel.replace(/^opencode\//i, '');
+      if (this.providerName === 'opencode') {
+        return {
+          client: this.client,
+          model: bareModel,
+          providerName: 'opencode',
+        };
+      }
+      const fallback = this.getFallbackClient('opencode', bareModel);
+      if (fallback) {
+        return fallback;
+      }
+    }
+
+    // 3. Explicit nvidia/ prefix -> route or normalize to NVIDIA
+    if (requestedModel.startsWith('nvidia/')) {
+      if (this.providerName === 'nvidia') {
+        return {
+          client: this.client,
+          model: requestedModel,
+          providerName: 'nvidia',
+        };
+      }
+      const fallback = this.getFallbackClient('nvidia', requestedModel);
+      if (fallback) {
+        debugLogger.log(
+          `AFOT Auto-routing model "${requestedModel}" to nvidia`,
+        );
+        return fallback;
+      }
+    }
+
+    let effectiveModel = requestedModel;
+    if (this.providerName === 'openrouter') {
+      if (effectiveModel.startsWith('openrouter/')) {
+        effectiveModel = effectiveModel.replace(/^openrouter\//i, '');
+      }
+      if (effectiveModel.startsWith('deepseek-ai/')) {
+        effectiveModel = effectiveModel.replace(/^deepseek-ai\//, 'deepseek/');
+      }
+    }
+
     // If provider is NVIDIA, but the requested model clearly belongs to an external provider
     // (e.g. 'z-ai/*', 'moonshotai/*', 'deepseek/*') that is known to hang on NVIDIA NIM,
     // seamlessly route it to OpenRouter if configured.
     if (this.providerName === 'nvidia') {
       const isThirdPartyModel =
-        requestedModel.startsWith('z-ai/') ||
-        requestedModel.startsWith('moonshotai/') ||
-        requestedModel.startsWith('deepseek/') ||
-        requestedModel.startsWith('deepseek-ai/') ||
-        requestedModel.startsWith('meta/') ||
-        requestedModel.startsWith('google/');
+        effectiveModel.startsWith('z-ai/') ||
+        effectiveModel.startsWith('moonshotai/') ||
+        effectiveModel.startsWith('deepseek/') ||
+        effectiveModel.startsWith('deepseek-ai/') ||
+        effectiveModel.startsWith('meta/') ||
+        effectiveModel.startsWith('google/');
 
       if (isThirdPartyModel) {
-        const fallback = this.getFallbackClient('openrouter', requestedModel);
+        const fallback = this.getFallbackClient('openrouter', effectiveModel);
         if (fallback) {
           debugLogger.log(
-            `AFOT Auto-routing model "${requestedModel}" from nvidia to openrouter`,
+            `AFOT Auto-routing model "${effectiveModel}" from nvidia to openrouter`,
           );
           return fallback;
         }
@@ -770,12 +852,12 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     // seamlessly route it to NVIDIA if configured.
     if (
       this.providerName === 'openrouter' &&
-      requestedModel.startsWith('nvidia/')
+      effectiveModel.startsWith('nvidia/')
     ) {
-      const fallback = this.getFallbackClient('nvidia', requestedModel);
+      const fallback = this.getFallbackClient('nvidia', effectiveModel);
       if (fallback) {
         debugLogger.log(
-          `AFOT Auto-routing model "${requestedModel}" from openrouter to nvidia`,
+          `AFOT Auto-routing model "${effectiveModel}" from openrouter to nvidia`,
         );
         return fallback;
       }
@@ -783,7 +865,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
     return {
       client: this.client,
-      model: requestedModel,
+      model: effectiveModel,
       providerName: this.providerName,
     };
   }

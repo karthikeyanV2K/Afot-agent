@@ -41,6 +41,11 @@ describe('AfotOpenAIContentGenerator', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const resolvedCustom = (generator as any).resolveModelForProvider('brand-new-model');
     expect(resolvedCustom).toBe('brand-new-model');
+
+    // Provider namespace prefixes (openrouter/, opencode/) should be stripped cleanly
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const resolvedPrefix = (generator as any).resolveModelForProvider('openrouter/deepseek/deepseek-v4.1-flash');
+    expect(resolvedPrefix).toBe('deepseek/deepseek-v4.1-flash');
   });
 
   it('yields usageMetadata from stream chunks in generateContentStream', async () => {
