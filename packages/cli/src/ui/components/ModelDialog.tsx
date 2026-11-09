@@ -39,6 +39,7 @@ import {
   saveAfotRecentModel,
   toggleAfotFavorite,
   OPENCODE_FREE_MODELS,
+  BUILTIN_PROVIDERS,
 } from '@google/gemini-cli-core';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { useKeyMatchers } from '../hooks/useKeyMatchers.js';
@@ -82,19 +83,10 @@ function formatModelName(modelId: string): string {
     'nemotron-3.5-super-vl-free': 'Nemotron 3.5 Super VL Free',
     'nemotron-3.5-super-vl-120b-a12b': 'Nemotron 3.5 Super VL',
     'nemotron-3.5-lightning-free': 'Nemotron 3.5 Lightning Free',
-    'crouton-alpha-free': 'Crouton Alpha Free',
-    'flint-40b-free': 'Flint 40B Free',
-    'iceman-free': 'Iceman Free',
-    'inkling-2-small-free': 'Inkling 2 Small Free',
-    'beam-free': 'Beam Free',
-    'big-pickle': 'Big Pickle',
-    'mimo-v2.6-flash-free': 'Mimo V2.6 Flash Free',
-    'kimi-k2.6': 'Kimi K2.6',
-    'kimi-k2-instruct': 'Kimi K2 Instruct',
-    'nemotron-3-ultra-550b-a55b': 'Nemotron 3 Ultra 550B',
-    'nemotron-3-nano-omni-30b-a3b-reasoning': 'Nemotron 3 Nano Omni 30b A3b Reasoning',
     'nemotron-3.5-lightning-30b-a3b': 'Nemotron 3.5 Lightning 30B',
     'nemotron-3.5-bolt-e4b': 'Nemotron 3.5 Bolt',
+    'nemotron-3-nano-omni-30b-a3b-reasoning': 'Nemotron 3 Nano Omni 30B Reasoning',
+    'nemotron-3-ultra-550b-a55b': 'Nemotron 3 Ultra 550B',
     'nemotron-3-super-120b-a12b': 'Nemotron 3 Super 120B',
     'nemotron-nano-3-30b-a3b': 'Nemotron Nano 3 30B',
     'nemotron-4-340b-instruct': 'Nemotron 4 340B Instruct',
@@ -107,18 +99,58 @@ function formatModelName(modelId: string): string {
     'laguna-xs-2.1': 'Laguna Xs 2.1',
     'llama-3.2-90b-vision-instruct': 'Llama 3.2 90B Vision',
     'codellama-70b': 'CodeLlama 70B',
+    'llama2-70b': 'Llama 2 70B',
     'mistral-large-2-instruct': 'Mistral Large 2',
+    'mistral-large-4-1t-a52b': 'Mistral Large 4',
+    'mistral-large': 'Mistral Large',
     'mixtral-8x22b-v0.1': 'Mixtral 8x22B',
     'codestral-22b-instruct-v0.1': 'Codestral 22B',
+    'mistral-7b-instruct-v0.3': 'Mistral 7B Instruct',
+    'mistral-nemo-12b-instruct': 'Mistral NeMo 12B',
     'gemma-3-12b-it': 'Gemma 3 12B IT',
     'gemma-3-4b-it': 'Gemma 3 4B IT',
     'gemma-4-31b-it': 'Gemma 4 31B IT',
+    'gemma-2b': 'Gemma 2B',
+    'recurrentgemma-2b': 'RecurrentGemma 2B',
+    'codegemma-1.1-7b': 'CodeGemma 1.1 7B',
+    'codegemma-7b': 'CodeGemma 7B',
+    'diffusiongemma-26b-a4b-it': 'DiffusionGemma 26B IT',
+    'deplot': 'DePlot',
+    'phi-3-vision-128k-instruct': 'Phi 3 Vision 128K',
     'phi-3.5-moe-instruct': 'Phi-3.5 MoE',
+    'kosmos-2': 'Kosmos 2',
+    'fuyu-8b': 'Fuyu 8B',
+    'neva-22b': 'NeVA 22B',
+    'vila': 'VILA 1.5',
+    'gpt-oss-20b': 'GPT-OSS 20B',
     'deepseek-coder-6.7b-instruct': 'DeepSeek Coder 6.7B',
     'yi-large': 'Yi Large',
     'palmyra-creative-122b': 'Palmyra Creative 122B',
+    'palmyra-fin-70b-32k': 'Palmyra Fin 70B',
+    'palmyra-med-70b': 'Palmyra Med 70B',
+    'palmyra-med-70b-32k': 'Palmyra Med 70B 32K',
     'step-5-preview': 'Step-5 Preview',
     'muse-glimmer-30b': 'Muse Glimmer 30B',
+    'granite-3.0-8b-instruct': 'Granite 3.0 8B',
+    'granite-3.0-3b-a800m-instruct': 'Granite 3.0 3B',
+    'granite-34b-code-instruct': 'Granite 34B Code',
+    'granite-8b-code-instruct': 'Granite 8B Code',
+    'starcoder2-15b': 'StarCoder2 15B',
+    'dbrx-instruct': 'DBRX Instruct',
+    'sea-lion-7b-instruct': 'SEA-LION 7B',
+    'zamba2-7b-instruct': 'Zamba2 7B',
+    'jamba-1.5-large-instruct': 'Jamba 1.5 Large',
+    'riva-translate-4b-instruct': 'Riva Translate 4B',
+    'riva-translate-4b-instruct-v2': 'Riva Translate 4B V2',
+    'crouton-alpha-free': 'Crouton Alpha Free',
+    'flint-40b-free': 'Flint 40B Free',
+    'iceman-free': 'Iceman Free',
+    'inkling-2-small-free': 'Inkling 2 Small Free',
+    'beam-free': 'Beam Free',
+    'big-pickle': 'Big Pickle',
+    'mimo-v2.6-flash-free': 'Mimo V2.6 Flash Free',
+    'kimi-k2.6': 'Kimi K2.6',
+    'kimi-k2-instruct': 'Kimi K2 Instruct',
     'claude-fable-5-1': 'Claude Fable 5.1',
     'claude-haiku-5-5': 'Claude Haiku 5.5',
     'claude-opus-5-5': 'Claude Opus 5.5',
@@ -132,14 +164,14 @@ function formatModelName(modelId: string): string {
   };
 
   if (known[base.toLowerCase()]) {
-    return known[base.toLowerCase()];
+    return known[base.toLowerCase()]!;
   }
 
   return base
     .split(/[-_]/)
     .map((word) => {
       if (!word) return '';
-      if (/^(ai|gpt|glm|vl|v\d+(\.\d+)?|b|mb|gb|it)$/i.test(word)) {
+      if (/^(ai|gpt|glm|vl|v\d+(\.\d+)?|\d+b|\d+k|b|mb|gb|it|oss|moe)$/i.test(word)) {
         return word.toUpperCase();
       }
       return word.charAt(0).toUpperCase() + word.slice(1);
@@ -378,12 +410,15 @@ function AfotUnifiedModelDialog({
 
     // Helper to add another provider's models
     const addProviderModels = (pKey: string) => {
-      const pConfig = afotConf?.providers?.[pKey];
-      if (!pConfig) return;
-      const providerModels =
-        liveProviderModels[pKey]?.length
-          ? liveProviderModels[pKey]
-          : (pConfig.models ?? []);
+      const pConfig = afotConf?.providers?.[pKey] ?? BUILTIN_PROVIDERS[pKey];
+      if (!pConfig && !liveProviderModels[pKey]?.length) return;
+      const builtinModels = BUILTIN_PROVIDERS[pKey]?.models ?? [];
+      const configuredModels = pConfig?.models ?? [];
+      const staticModels = Array.from(new Set([...configuredModels, ...builtinModels]));
+      const live = liveProviderModels[pKey] ?? [];
+      const staticSet = new Set(staticModels);
+      const extraLive = live.filter((m) => !staticSet.has(m));
+      const providerModels = [...staticModels, ...extraLive];
       if (providerModels.length === 0) return;
       const pName = formatProviderName(pKey);
 

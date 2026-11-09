@@ -23,7 +23,7 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 const pkg = require(path.resolve(__dirname, 'package.json'));
 const cliPkg = require(path.resolve(__dirname, 'packages/cli/package.json'));
-const afotVersion = process.env.CLI_VERSION || (cliPkg.version === '0.69.0-nightly.20261104.g89e9d25d6' ? '1.2.3' : cliPkg.version);
+const afotVersion = process.env.CLI_VERSION || (cliPkg.version === '0.69.0-nightly.20261104.g89e9d25d6' ? '1.2.4' : cliPkg.version);
 
 function createWasmPlugins() {
   const wasmBinaryPlugin = {

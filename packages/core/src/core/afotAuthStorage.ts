@@ -291,7 +291,7 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
       providerConfig?.baseUrl?.trim() ||
       (name === 'opencode'
         ? `${server.replace(/\/+$/, '')}/ai/v1`
-        : '');
+        : BUILTIN_PROVIDERS[name]?.baseUrl || '');
     if (!baseUrl) {
       debugLogger.warn(
         `AFOT: Provider "${name}" has no baseUrl in ~/.afot/config.json — skipping`,
@@ -304,8 +304,10 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
       key,
       baseUrl,
       headers: providerConfig?.headers,
-      models: providerConfig?.models,
-      defaultModel: providerConfig?.defaultModel?.trim(),
+      models: providerConfig?.models ?? BUILTIN_PROVIDERS[name]?.models,
+      defaultModel:
+        providerConfig?.defaultModel?.trim() ||
+        BUILTIN_PROVIDERS[name]?.defaultModel,
     };
   }
 
@@ -341,7 +343,7 @@ export function resolveAfotProviderByName(
     providerConfig?.baseUrl?.trim() ||
     (providerName === 'opencode'
       ? `${server.replace(/\/+$/, '')}/ai/v1`
-      : '');
+      : BUILTIN_PROVIDERS[providerName]?.baseUrl || '');
   if (!baseUrl) return null;
 
   return {
@@ -349,8 +351,10 @@ export function resolveAfotProviderByName(
     key,
     baseUrl,
     headers: providerConfig?.headers,
-    models: providerConfig?.models,
-    defaultModel: providerConfig?.defaultModel?.trim(),
+    models: providerConfig?.models ?? BUILTIN_PROVIDERS[providerName]?.models,
+    defaultModel:
+      providerConfig?.defaultModel?.trim() ||
+      BUILTIN_PROVIDERS[providerName]?.defaultModel,
   };
 }
 
@@ -400,9 +404,7 @@ export function filterAfotChatModels(models: readonly string[]): string[] {
   const excluded = [
     'embed', 'embedding', 'retriever', 'retrieval', 'rerank', 'reward',
     'guardrail', 'safety', 'moderation', 'nemoguard', 'topic-control',
-    'parse', 'parser', 'diffusion', 'deplot', 'fuyu', 'clip', 'vision',
-    'image', 'audio', 'video', 'tts', 'speech-to-text', 'ocr',
-    'segmentation', 'detection',
+    'detector', 'llama-guard', 'clip', 'calibration', 'parse',
   ];
   return models.filter((model) =>
     !excluded.some((token) => model.toLowerCase().includes(token)),
@@ -433,7 +435,7 @@ export async function fetchAfotProviderModels(
     }).finally(() => clearTimeout(timeout));
 
     if (!response.ok) {
-      return sortAfotModels(filterAfotChatModels(resolved.models ?? []));
+      return Array.from(new Set(resolved.models ?? []));
     }
     const body = (await response.json()) as {
       data?: Array<{ id?: unknown }>;
@@ -455,10 +457,16 @@ export async function fetchAfotProviderModels(
     } else if (ids.length === 0 && body.models && typeof body.models === 'object') {
       ids.push(...Object.keys(body.models));
     }
-    const combined = Array.from(new Set([...ids, ...(resolved.models ?? [])]));
-    return sortAfotModels(filterAfotChatModels(combined));
+    const filteredIds = filterAfotChatModels(ids);
+    const configuredList = resolved.models ?? [];
+    const configuredSet = new Set(configuredList);
+    const extraLive = filteredIds
+      .filter((id) => !configuredSet.has(id))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const combined = Array.from(new Set([...configuredList, ...extraLive]));
+    return combined;
   } catch {
-    return sortAfotModels(filterAfotChatModels(resolved.models ?? []));
+    return Array.from(new Set(resolved.models ?? []));
   }
 }
 
@@ -604,7 +612,7 @@ export function validateAfotAuth(): string | null {
  */
 export const BUILTIN_PROVIDERS: Record<
   string,
-  { baseUrl: string; models: string[] }
+  { baseUrl: string; models: string[]; defaultModel?: string }
 > = {
   openrouter: {
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -629,6 +637,7 @@ export const BUILTIN_PROVIDERS: Record<
       'qwen/qwen3-235b-a22b',
       'x-ai/grok-3-beta',
     ],
+    defaultModel: 'z-ai/glm-5.3-flash',
   },
   nvidia: {
     baseUrl: 'https://integrate.api.nvidia.com/v1',
@@ -638,35 +647,67 @@ export const BUILTIN_PROVIDERS: Record<
       'nvidia/nemotron-3.5-bolt-e4b',
       'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
       'nvidia/nemotron-3-ultra-550b-a55b',
-      'nvidia/nemotron-3-super-120b-a12b',
-      'nvidia/nemotron-nano-3-30b-a3b',
-      'nvidia/nemotron-4-340b-instruct',
-      'nvidia/llama-3.1-nemotron-70b-instruct',
-      'nvidia/llama-3.1-nemotron-51b-instruct',
-      'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-      'nvidia/llama3-chatqa-1.5-70b',
-      'nvidia/mistral-nemo-minitron-8b-8k-instruct',
-      'nvidia/cosmos-reason2-8b',
       'poolside/laguna-xs-2.1',
+      'deepseek-ai/deepseek-v4.1-flash',
+      'deepseek-ai/deepseek-coder-6.7b-instruct',
+      'nvidia/cosmos-reason2-8b',
+      'moonshotai/kimi-k2.6',
+      'z-ai/glm-5.3-flash',
+      'minimaxai/minimax-m3.1-flash',
+      'stepfun-ai/step-5-preview',
       'meta/llama-3.2-90b-vision-instruct',
       'meta/codellama-70b',
       'meta/llama2-70b',
       'meta/muse-glimmer-30b',
-      'mistralai/mistral-large-2-instruct',
-      'mistralai/mixtral-8x22b-v0.1',
-      'mistralai/codestral-22b-instruct-v0.1',
+      'nvidia/llama-3.1-nemotron-70b-instruct',
+      'nvidia/llama-3.1-nemotron-51b-instruct',
+      'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+      'nvidia/llama3-chatqa-1.5-70b',
       'mistralai/mistral-large-4-1t-a52b',
+      'mistralai/mistral-large-2-instruct',
+      'mistralai/mistral-large',
+      'mistralai/codestral-22b-instruct-v0.1',
+      'mistralai/mixtral-8x22b-v0.1',
+      'mistralai/mistral-7b-instruct-v0.3',
+      'nv-mistralai/mistral-nemo-12b-instruct',
+      'nvidia/mistral-nemo-minitron-8b-8k-instruct',
+      'google/gemma-4-31b-it',
       'google/gemma-3-12b-it',
       'google/gemma-3-4b-it',
-      'google/gemma-4-31b-it',
+      'google/diffusiongemma-26b-a4b-it',
       'google/codegemma-1.1-7b',
+      'google/codegemma-7b',
+      'google/gemma-2b',
+      'google/recurrentgemma-2b',
+      'google/deplot',
+      'microsoft/phi-3-vision-128k-instruct',
       'microsoft/phi-3.5-moe-instruct',
-      'deepseek-ai/deepseek-coder-6.7b-instruct',
+      'microsoft/kosmos-2',
+      'nvidia/nemotron-3-super-120b-a12b',
+      'nvidia/nemotron-nano-3-30b-a3b',
+      'nvidia/nemotron-4-340b-instruct',
+      'nvidia/neva-22b',
+      'nvidia/vila',
+      'adept/fuyu-8b',
+      'ibm/granite-3.0-8b-instruct',
+      'ibm/granite-3.0-3b-a800m-instruct',
+      'ibm/granite-34b-code-instruct',
+      'ibm/granite-8b-code-instruct',
+      'nvidia/riva-translate-4b-instruct',
+      'nvidia/riva-translate-4b-instruct-v2',
+      'openai/gpt-oss-20b',
       '01-ai/yi-large',
       'ai21labs/jamba-1.5-large-instruct',
-      'stepfun-ai/step-5-preview',
+      'aisingapore/sea-lion-7b-instruct',
+      'bigcode/starcoder2-15b',
+      'databricks/dbrx-instruct',
       'writer/palmyra-creative-122b',
+      'writer/palmyra-fin-70b-32k',
+      'writer/palmyra-med-70b',
+      'writer/palmyra-med-70b-32k',
+      'zyphra/zamba2-7b-instruct',
     ],
+    defaultModel: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
   },
   anthropic: {
     baseUrl: 'https://api.anthropic.com/v1',
@@ -780,7 +821,11 @@ export function generateBlankAuthFile(): AfotAuthFile {
 export function generateDefaultConfigFile(): AfotConfig {
   const providers: Record<string, AfotProviderConfig> = {};
   for (const [name, def] of Object.entries(BUILTIN_PROVIDERS)) {
-    providers[name] = { baseUrl: def.baseUrl, models: def.models };
+    providers[name] = {
+      baseUrl: def.baseUrl,
+      models: def.models,
+      ...(def.defaultModel ? { defaultModel: def.defaultModel } : {}),
+    };
   }
   return {
     defaultProvider: 'openrouter',
