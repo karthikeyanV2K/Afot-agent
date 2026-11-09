@@ -22,6 +22,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 const pkg = require(path.resolve(__dirname, 'package.json'));
+const cliPkg = require(path.resolve(__dirname, 'packages/cli/package.json'));
+const afotVersion = process.env.CLI_VERSION || (cliPkg.version === '0.69.0-nightly.20261104.g89e9d25d6' ? '1.2.2' : cliPkg.version);
 
 function createWasmPlugins() {
   const wasmBinaryPlugin = {
@@ -97,9 +99,7 @@ const cliConfig = {
   define: {
     __filename: '__chunk_filename',
     __dirname: '__chunk_dirname',
-    'process.env.CLI_VERSION': JSON.stringify(
-      process.env.CLI_VERSION || '1.2.1',
-    ),
+    'process.env.CLI_VERSION': JSON.stringify(afotVersion),
     'process.env.GEMINI_SANDBOX_IMAGE_DEFAULT': JSON.stringify(
       pkg.config?.sandboxImageUri,
     ),
@@ -153,9 +153,7 @@ const a2aServerConfig = {
   define: {
     __filename: '__chunk_filename',
     __dirname: '__chunk_dirname',
-    'process.env.CLI_VERSION': JSON.stringify(
-      process.env.CLI_VERSION || '1.2.1',
-    ),
+    'process.env.CLI_VERSION': JSON.stringify(afotVersion),
     'process.env.NODE_ENV': JSON.stringify(
       process.env.NODE_ENV || 'production',
     ),
