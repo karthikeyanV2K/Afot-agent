@@ -32,7 +32,9 @@ import type { LlmRole } from '../telemetry/llmRole.js';
 import {
   type AfotResolvedProvider,
   resolveAfotProviderByName,
+  BUILTIN_PROVIDERS,
 } from './afotAuthStorage.js';
+import { OPENCODE_FREE_MODELS } from './opencodeConsoleAuth.js';
 import { debugLogger } from '../utils/debugLogger.js';
 import { TerminalQuotaError } from '../utils/googleQuotaErrors.js';
 import { ModelNotFoundError } from '../utils/httpErrors.js';
@@ -827,19 +829,14 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       }
     }
 
-    // If provider is NVIDIA, but the requested model clearly belongs to an external provider
-    // (e.g. 'z-ai/*', 'moonshotai/*', 'deepseek/*') that is known to hang on NVIDIA NIM,
-    // seamlessly route it to OpenRouter if configured.
-    if (this.providerName === 'nvidia') {
-      const isThirdPartyModel =
-        effectiveModel.startsWith('z-ai/') ||
-        effectiveModel.startsWith('moonshotai/') ||
-        effectiveModel.startsWith('deepseek/') ||
-        effectiveModel.startsWith('deepseek-ai/') ||
-        effectiveModel.startsWith('meta/') ||
-        effectiveModel.startsWith('google/');
+    const isNvidiaModel =
+      BUILTIN_PROVIDERS['nvidia']?.models?.includes(effectiveModel) ||
+      effectiveModel.startsWith('nvidia/') ||
+      effectiveModel.startsWith('poolside/');
 
-      if (isThirdPartyModel) {
+    // If provider is NVIDIA, only route away if the requested model is NOT hosted by NVIDIA
+    if (this.providerName === 'nvidia') {
+      if (!isNvidiaModel) {
         const fallback = this.getFallbackClient('openrouter', effectiveModel);
         if (fallback) {
           debugLogger.log(
@@ -850,11 +847,26 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       }
     }
 
-    // If provider is OpenRouter, but the model clearly belongs to NVIDIA NIM (e.g. 'nvidia/*'),
-    // seamlessly route it to NVIDIA if configured.
+    // If provider is OpenCode, but the model is hosted on NVIDIA and not on OpenCode, route to NVIDIA
+    if (
+      this.providerName === 'opencode' &&
+      !OPENCODE_FREE_MODELS.includes(effectiveModel) &&
+      isNvidiaModel
+    ) {
+      const fallback = this.getFallbackClient('nvidia', effectiveModel);
+      if (fallback) {
+        debugLogger.log(
+          `AFOT Auto-routing model "${effectiveModel}" from opencode to nvidia`,
+        );
+        return fallback;
+      }
+    }
+
+    // If provider is OpenRouter, but the model clearly belongs to NVIDIA NIM and not OpenRouter, route to NVIDIA
     if (
       this.providerName === 'openrouter' &&
-      effectiveModel.startsWith('nvidia/')
+      isNvidiaModel &&
+      !BUILTIN_PROVIDERS['openrouter']?.models?.includes(effectiveModel)
     ) {
       const fallback = this.getFallbackClient('nvidia', effectiveModel);
       if (fallback) {
@@ -924,7 +936,13 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         this.isRetryableProviderError(err)
       ) {
         try {
-          const fallback = this.getFallbackClient('openrouter', finalModel);
+          const fallbackTarget =
+            BUILTIN_PROVIDERS['nvidia']?.models?.includes(finalModel) ||
+            finalModel.startsWith('nvidia/') ||
+            finalModel.startsWith('poolside/')
+              ? 'nvidia'
+              : 'openrouter';
+          const fallback = this.getFallbackClient(fallbackTarget, finalModel);
           if (fallback) {
             const completion = await fallback.client.chat.completions.create(
               {
@@ -1021,7 +1039,13 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         this.isRetryableProviderError(err)
       ) {
         try {
-          const fallback = this.getFallbackClient('openrouter', finalModel);
+          const fallbackTarget =
+            BUILTIN_PROVIDERS['nvidia']?.models?.includes(finalModel) ||
+            finalModel.startsWith('nvidia/') ||
+            finalModel.startsWith('poolside/')
+              ? 'nvidia'
+              : 'openrouter';
+          const fallback = this.getFallbackClient(fallbackTarget, finalModel);
           if (fallback) {
             try {
               stream = await fallback.client.chat.completions.create(
