@@ -283,6 +283,26 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
   // ─── Translation: OpenAI → Gemini ──────────────────────────────────────────
 
+  private normalizeToolName(name: string): string {
+    const lower = name.toLowerCase().replace(/[-_]/g, '');
+    const map: Record<string, string> = {
+      grepsearch: 'grep',
+      searchfilecontent: 'grep',
+      searchtext: 'grep',
+      findfiles: 'glob',
+      readfolder: 'ls',
+      listfiles: 'ls',
+      readfile: 'read_file',
+      readmanyfiles: 'read_many_files',
+      writefile: 'write_file',
+      editfile: 'edit',
+      runcommand: 'shell',
+      executecommand: 'shell',
+      bash: 'shell',
+    };
+    return map[lower] || name;
+  }
+
   private normalizeToolArgs(
     name: string,
     args: Record<string, unknown>,
@@ -294,6 +314,24 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       }
       if (!norm['file_path'] && norm['Path']) {
         norm['file_path'] = norm['Path'];
+      }
+      if (norm['start_line'] !== undefined && typeof norm['start_line'] === 'string') {
+        const parsed = Number.parseInt(norm['start_line'], 10);
+        if (!Number.isNaN(parsed)) norm['start_line'] = parsed;
+      }
+      if (norm['end_line'] !== undefined && typeof norm['end_line'] === 'string') {
+        const parsed = Number.parseInt(norm['end_line'], 10);
+        if (!Number.isNaN(parsed)) norm['end_line'] = parsed;
+      }
+    }
+    if (name === 'grep') {
+      if (norm['total_max_matches'] !== undefined && typeof norm['total_max_matches'] === 'string') {
+        const parsed = Number.parseInt(norm['total_max_matches'], 10);
+        if (!Number.isNaN(parsed)) norm['total_max_matches'] = parsed;
+      }
+      if (norm['max_matches_per_file'] !== undefined && typeof norm['max_matches_per_file'] === 'string') {
+        const parsed = Number.parseInt(norm['max_matches_per_file'], 10);
+        if (!Number.isNaN(parsed)) norm['max_matches_per_file'] = parsed;
       }
     }
     if (name === 'shell' || name === 'run_command') {
@@ -311,24 +349,66 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     cleanText: string;
     toolCalls: Array<{ id: string; function: { name: string; arguments: string } }>;
   } {
-    if (
-      !rawText.includes('<tool_call>') &&
-      !rawText.includes('<invoke') &&
-      !rawText.includes(']<]minimax[>')
-    ) {
+    const hasMarkup =
+      rawText.includes('<tool_call>') ||
+      rawText.includes('<tool_calls>') ||
+      rawText.includes('<invoke') ||
+      rawText.includes(']<]minimax[>') ||
+      rawText.includes('DSML') ||
+      rawText.includes('tool calls') ||
+      rawText.includes('\uFF5C');
+
+    if (!hasMarkup) {
       return { cleanText: rawText, toolCalls: [] };
     }
 
     const clean = rawText
+      .replace(/\uFF5C/g, '|')
       .replace(/\]<\]minimax\[>\[?/g, '')
       .replace(/\]<\]/g, '');
     const toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> = [];
 
-    // 1. Match XML invoke pattern: <invoke name="...">...</invoke>
-    const invokeRegex = /<invoke\s+name=["']?([^"'\s>]+)["']?>([\s\S]*?)<\/invoke>/g;
+    // 1. DeepSeek DSML format: <|DSML| invoke name="..."> ... </|DSML| invoke>
+    const dsmlInvokeRegex =
+      /<\|DSML\|\s*invoke\s+name=["']?([^"'\s>]+)["']?>([\s\S]*?)<\/\|DSML\|\s*invoke>/gi;
+    let dMatch: RegExpExecArray | null;
+    while ((dMatch = dsmlInvokeRegex.exec(clean)) !== null) {
+      const rawName = dMatch[1].replace(/^["']|["']$/g, '');
+      const canonicalName = this.normalizeToolName(rawName);
+      const body = dMatch[2];
+      const args: Record<string, unknown> = {};
+
+      const dsmlParamRegex =
+        /<\|DSML\|\s*parameter\s+name=["']?([^"'\s>]+)["']?(?:\s+string=["']?(true|false)["']?)?>([\s\S]*?)<\/\|DSML\|\s*parameter>/gi;
+      let pMatch: RegExpExecArray | null;
+      while ((pMatch = dsmlParamRegex.exec(body)) !== null) {
+        const pKey = pMatch[1].replace(/^["']|["']$/g, '');
+        const isString = pMatch[2] === 'true';
+        const pVal = pMatch[3].trim();
+        if (isString) {
+          args[pKey] = pVal;
+        } else {
+          try {
+            args[pKey] = JSON.parse(pVal);
+          } catch {
+            args[pKey] = pVal;
+          }
+        }
+      }
+
+      const normalizedArgs = this.normalizeToolArgs(canonicalName, args);
+      toolCalls.push({
+        id: `call_${Math.random().toString(36).slice(2, 9)}`,
+        function: { name: canonicalName, arguments: JSON.stringify(normalizedArgs) },
+      });
+    }
+
+    // 2. Match XML invoke pattern: <invoke name="...">...</invoke>
+    const invokeRegex = /<invoke\s+name=["']?([^"'\s>]+)["']?>([\s\S]*?)<\/invoke>/gi;
     let match: RegExpExecArray | null;
     while ((match = invokeRegex.exec(clean)) !== null) {
-      const name = match[1].replace(/^["']|["']$/g, '');
+      const rawName = match[1].replace(/^["']|["']$/g, '');
+      const canonicalName = this.normalizeToolName(rawName);
       const body = match[2];
       const args: Record<string, unknown> = {};
       const paramRegex = /<([a-zA-Z0-9_-]+)(?:\s+name=["']?([^"'\s>]+)["']?)?>([\s\S]*?)<\/\1>/g;
@@ -342,15 +422,15 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           args[pKey] = pVal;
         }
       }
-      const normalizedArgs = this.normalizeToolArgs(name, args);
+      const normalizedArgs = this.normalizeToolArgs(canonicalName, args);
       toolCalls.push({
         id: `call_${Math.random().toString(36).slice(2, 9)}`,
-        function: { name, arguments: JSON.stringify(normalizedArgs) },
+        function: { name: canonicalName, arguments: JSON.stringify(normalizedArgs) },
       });
     }
 
-    // 2. Match JSON format inside <tool_call>...</tool_call>
-    const jsonRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+    // 3. Match JSON format inside <tool_call>...</tool_call> or <tool_calls>...</tool_calls>
+    const jsonRegex = /<tool_calls?>([\s\S]*?)<\/tool_calls?>/gi;
     let jMatch: RegExpExecArray | null;
     while ((jMatch = jsonRegex.exec(clean)) !== null) {
       const inner = jMatch[1].trim();
@@ -361,6 +441,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
             arguments?: Record<string, unknown> | string;
           };
           if (parsed.name) {
+            const canonicalName = this.normalizeToolName(parsed.name);
             let parsedArgs: Record<string, unknown> = {};
             if (typeof parsed.arguments === 'string') {
               try {
@@ -371,11 +452,11 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
             } else if (parsed.arguments && typeof parsed.arguments === 'object') {
               parsedArgs = parsed.arguments;
             }
-            const normalizedArgs = this.normalizeToolArgs(parsed.name, parsedArgs);
+            const normalizedArgs = this.normalizeToolArgs(canonicalName, parsedArgs);
             toolCalls.push({
               id: `call_${Math.random().toString(36).slice(2, 9)}`,
               function: {
-                name: parsed.name,
+                name: canonicalName,
                 arguments: JSON.stringify(normalizedArgs),
               },
             });
@@ -387,10 +468,16 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     }
 
     // Strip tool call markup from human-visible text
-    const cleanText = rawText
-      .replace(/\]<\]minimax\[>\[?<tool_call>[\s\S]*?\]<\]minimax\[>\[?<\/tool_call>/g, '')
-      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-      .replace(/<invoke\s+name=["']?[^"'\s>]+["']?>[\s\S]*?<\/invoke>/g, '')
+    const cleanText = clean
+      .replace(/<\|DSML\|\s*calls>[\s\S]*?<\/\|DSML\|\s*calls>/gi, '')
+      .replace(/<\|DSML\|\s*invoke\s+name=["']?[^"'\s>]+["']?>[\s\S]*?<\/\|DSML\|\s*invoke>/gi, '')
+      .replace(/<\|DSML\|\s*(?:calls|\/calls)>/gi, '')
+      .replace(/<\|tool\s*calls\|>[\s\S]*?<\/\|tool\s*calls\|>/gi, '')
+      .replace(/<\|tool\s*(?:calls|\/calls)\|>/gi, '')
+      .replace(/<tool_calls?>[\s\S]*?<\/tool_calls?>/gi, '')
+      .replace(/<\/?tool_calls?>/gi, '')
+      .replace(/<invoke\s+name=["']?[^"'\s>]+["']?>[\s\S]*?<\/invoke>/gi, '')
+      .replace(/<\|[A-Za-z0-9_]+\|>/g, '')
       .replace(/\]<\]minimax\[>\[?/g, '')
       .trim();
 
@@ -460,7 +547,8 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         } catch {
           args = {};
         }
-        const fnName = (tc as { function?: { name?: string } }).function?.name ?? '';
+        const rawFnName = (tc as { function?: { name?: string } }).function?.name ?? '';
+        const fnName = this.normalizeToolName(rawFnName);
         parts.push({
           functionCall: {
             name: fnName,
@@ -1143,10 +1231,13 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
           if (textDelta) {
             accumulatedText += textDelta;
+            const normalizedAccum = accumulatedText.replace(/\uFF5C/g, '|');
             const isInsideEmbeddedToolCall =
-              accumulatedText.includes(']<]minimax[>') ||
-              accumulatedText.includes('<tool_call>') ||
-              accumulatedText.includes('<invoke');
+              normalizedAccum.includes(']<]minimax[>') ||
+              normalizedAccum.includes('<tool_call') ||
+              normalizedAccum.includes('<invoke') ||
+              normalizedAccum.includes('<|DSML|') ||
+              normalizedAccum.includes('<|tool');
 
             if (!isInsideEmbeddedToolCall) {
               wasTextStreamed = true;
@@ -1240,7 +1331,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           } catch {
             args = {};
           }
-          const fnName = tc.function.name;
+          const fnName = self.normalizeToolName(tc.function.name);
           parts.push({
             functionCall: {
               name: fnName,
