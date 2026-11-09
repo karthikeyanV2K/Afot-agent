@@ -92,8 +92,31 @@ function formatModelName(modelId: string): string {
     'kimi-k2.6': 'Kimi K2.6',
     'kimi-k2-instruct': 'Kimi K2 Instruct',
     'nemotron-3-ultra-550b-a55b': 'Nemotron 3 Ultra 550B',
+    'nemotron-3-nano-omni-30b-a3b-reasoning': 'Nemotron 3 Nano Omni 30b A3b Reasoning',
     'nemotron-3.5-lightning-30b-a3b': 'Nemotron 3.5 Lightning 30B',
     'nemotron-3.5-bolt-e4b': 'Nemotron 3.5 Bolt',
+    'nemotron-3-super-120b-a12b': 'Nemotron 3 Super 120B',
+    'nemotron-nano-3-30b-a3b': 'Nemotron Nano 3 30B',
+    'nemotron-4-340b-instruct': 'Nemotron 4 340B Instruct',
+    'llama-3.1-nemotron-70b-instruct': 'Llama 3.1 Nemotron 70B',
+    'llama-3.1-nemotron-51b-instruct': 'Llama 3.1 Nemotron 51B',
+    'llama-3.1-nemotron-ultra-253b-v1': 'Llama 3.1 Nemotron Ultra 253B',
+    'llama3-chatqa-1.5-70b': 'Llama 3 ChatQA 70B',
+    'mistral-nemo-minitron-8b-8k-instruct': 'Mistral NeMo Minitron 8B',
+    'cosmos-reason2-8b': 'Cosmos Reason2 8B',
+    'laguna-xs-2.1': 'Laguna Xs 2.1',
+    'llama-3.2-90b-vision-instruct': 'Llama 3.2 90B Vision',
+    'codellama-70b': 'CodeLlama 70B',
+    'mistral-large-2-instruct': 'Mistral Large 2',
+    'mixtral-8x22b-v0.1': 'Mixtral 8x22B',
+    'codestral-22b-instruct-v0.1': 'Codestral 22B',
+    'gemma-3-12b-it': 'Gemma 3 12B IT',
+    'gemma-3-4b-it': 'Gemma 3 4B IT',
+    'gemma-4-31b-it': 'Gemma 4 31B IT',
+    'phi-3.5-moe-instruct': 'Phi-3.5 MoE',
+    'deepseek-coder-6.7b-instruct': 'DeepSeek Coder 6.7B',
+    'yi-large': 'Yi Large',
+    'palmyra-creative-122b': 'Palmyra Creative 122B',
     'step-5-preview': 'Step-5 Preview',
     'muse-glimmer-30b': 'Muse Glimmer 30B',
     'claude-fable-5-1': 'Claude Fable 5.1',
@@ -240,16 +263,26 @@ function AfotUnifiedModelDialog({
 
   useEffect(() => {
     let cancelled = false;
-    if (activeProvider && activeProvider !== 'opencode') {
+    const authFile = readAfotAuthFile() ?? {};
+    const authenticatedProviders = Object.keys(authFile).filter((k) => {
+      const v = authFile[k];
+      if (!v) return false;
+      if (v.type === 'api' && (v as { key?: string }).key?.trim()) return true;
+      if (v.type === 'oauth' && (v as { access_token?: string }).access_token?.trim()) return true;
+      return false;
+    });
+
+    for (const pKey of authenticatedProviders) {
+      if (pKey === 'opencode') continue;
       void (async () => {
         try {
-          const prov = resolveAfotProviderByName(activeProvider);
+          const prov = resolveAfotProviderByName(pKey);
           if (prov) {
             const models = await fetchAfotProviderModels(prov);
             if (!cancelled && models.length > 0) {
               setLiveProviderModels((prev) => ({
                 ...prev,
-                [activeProvider]: models,
+                [pKey]: models,
               }));
             }
           }
@@ -261,7 +294,7 @@ function AfotUnifiedModelDialog({
     return () => {
       cancelled = true;
     };
-  }, [activeProvider]);
+  }, [activeProvider, catalogVersion]);
 
   const allItems = useMemo(() => {
     const afotConf = readAfotConfig();
