@@ -608,7 +608,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       : available[0] ?? providerStripped;
   }
 
-  private handleOpenAIError(err: unknown): never {
+  private handleOpenAIError(err: unknown, currentProvider?: string): never {
     const errorObj = err as {
       status?: number;
       message?: string;
@@ -664,6 +664,8 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       );
     }
 
+    const provName = currentProvider || this.providerName;
+
     if (
       status === 404 ||
       status === 410 ||
@@ -671,8 +673,8 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     ) {
       const displayMsg =
         errorMessage.includes('Function') && errorMessage.includes('Not found for account')
-          ? `Model "${this.model}" is not available on your ${this.providerName} account. Please select an available model in /model.`
-          : errorMessage || `Model "${this.model}" is unavailable on ${this.providerName}.`;
+          ? `Model "${this.model}" is not available on your ${provName} account. Please select an available model in /model.`
+          : errorMessage || `Model "${this.model}" is unavailable on ${provName}.`;
       throw new ModelNotFoundError(
         displayMsg,
         status || 404,
@@ -685,7 +687,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
       errorObj.code === 'ETIMEDOUT'
     ) {
       throw new Error(
-        `Request timed out for model "${this.model}" on ${this.providerName} (upstream server not responding). Please switch to an active model via /model (e.g. nvidia/nemotron-3.5-super-vl-120b-a12b).`,
+        `Request timed out for model "${this.model}" on ${provName} (upstream server not responding). Please switch to an active model via /model (e.g. nvidia/nemotron-3.5-super-vl-120b-a12b).`,
       );
     }
 
@@ -945,7 +947,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
           // Ignore fallback error and throw original error
         }
       }
-      this.handleOpenAIError(err);
+      this.handleOpenAIError(err, effectiveProvider);
     }
   }
 
@@ -1063,7 +1065,7 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
         }
       }
       if (!stream) {
-        this.handleOpenAIError(err);
+        this.handleOpenAIError(err, effectiveProvider);
       }
     }
 
