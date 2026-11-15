@@ -37,6 +37,8 @@ import { WEB_FETCH_DEFINITION } from './definitions/coreTools.js';
 import { resolveToolDeclaration } from './definitions/resolver.js';
 import { LRUCache } from 'mnemonist';
 import type { AgentLoopContext } from '../config/agent-loop-context.js';
+import { AuthType } from '../core/contentGenerator.js';
+import { afotWebExtract } from '../core/afotWebExtract.js';
 
 const URL_FETCH_TIMEOUT_MS = 10000;
 const MAX_CONTENT_LENGTH = 250000;
@@ -298,6 +300,33 @@ class WebFetchToolInvocation extends BaseToolInvocation<
       );
     }
 
+    // Step 2 Discovery-and-Extraction: Try AI web extractors (Firecrawl, Tavily, Exa, TinyFish)
+    try {
+      const extracted = await afotWebExtract(url, signal);
+      if (
+        extracted &&
+        extracted.content &&
+        extracted.provider !== 'native-reader' &&
+        extracted.provider !== 'native-fetch'
+      ) {
+        debugLogger.log(
+          `[WebFetchTool] Successfully extracted ${url} via AI extractor "${extracted.provider}"`,
+        );
+        if (!this.context.config.isContextManagementEnabled()) {
+          return truncateString(
+            extracted.content,
+            MAX_CONTENT_LENGTH,
+            TRUNCATION_WARNING,
+          );
+        }
+        return extracted.content;
+      }
+    } catch (extractErr) {
+      debugLogger.warn(
+        `[WebFetchTool] AI extraction failed for ${url}, trying standard fetch: ${extractErr}`,
+      );
+    }
+
     const response = await retryWithBackoff(
       async () => {
         const res = await fetchWithTimeout(url, URL_FETCH_TIMEOUT_MS, {
@@ -458,6 +487,20 @@ class WebFetchToolInvocation extends BaseToolInvocation<
       })
       .join('\n');
 
+    // If running on AFOT multi-provider, return the extracted content directly without calling Gemini fallback model
+    const authType =
+      typeof this.context.config.getContentGeneratorConfig === 'function'
+        ? this.context.config.getContentGeneratorConfig()?.authType
+        : undefined;
+    const isAfotProvider =
+      authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY;
+    if (isAfotProvider) {
+      return {
+        llmContent: wrapUntrusted(aggregatedContent),
+        returnDisplay: `Content for ${uniqueUrls.length} URL(s) fetched and extracted successfully.`,
+      };
+    }
+
     try {
       const geminiClient = this.context.geminiClient;
       const fallbackPrompt = `Follow the user's instructions below using the provided webpage content.
@@ -499,15 +542,12 @@ ${aggregatedContent}
         returnDisplay: `Content for ${urls.length} URL(s) processed using fallback fetch.`,
       };
     } catch (e) {
-      const errorMessage = `Error during fallback processing: ${getErrorMessage(e)}`;
-      debugLogger.error(`[WebFetchTool] Fallback failed: ${errorMessage}`);
+      debugLogger.warn(
+        `[WebFetchTool] Utility LLM processing unavailable (${getErrorMessage(e)}), returning extracted content directly.`,
+      );
       return {
-        llmContent: `Error: ${errorMessage}`,
-        returnDisplay: `Error: ${errorMessage}`,
-        error: {
-          message: errorMessage,
-          type: ToolErrorType.WEB_FETCH_FALLBACK_FAILED,
-        },
+        llmContent: wrapUntrusted(aggregatedContent),
+        returnDisplay: `Content for ${urls.length} URL(s) fetched and extracted successfully.`,
       };
     }
   }
@@ -789,6 +829,17 @@ Response: ${rawResponseText}`;
           type: ToolErrorType.WEB_FETCH_PROCESSING_ERROR,
         },
       };
+    }
+
+    // If running on AFOT multi-provider, bypass Gemini primary fetch and invoke AFOT extraction directly
+    const authType =
+      typeof this.context.config.getContentGeneratorConfig === 'function'
+        ? this.context.config.getContentGeneratorConfig()?.authType
+        : undefined;
+    const isAfotProvider =
+      authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY;
+    if (isAfotProvider) {
+      return this.executeFallback(toFetch, signal);
     }
 
     try {

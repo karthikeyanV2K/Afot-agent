@@ -70,6 +70,7 @@ export * from './core/afotAuthStorage.js';
 export * from './core/afotPathGuard.js';
 export * from './core/afotPluginLoader.js';
 export * from './core/afotWebSearch.js';
+export * from './core/afotWebExtract.js';
 export * from './core/afotOpenAIContentGenerator.js';
 export * from './core/opencodeConsoleAuth.js';
 

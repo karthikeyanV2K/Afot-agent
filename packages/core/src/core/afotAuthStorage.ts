@@ -109,11 +109,34 @@ export interface AfotConfig {
   ecoMode?: boolean | 'auto';
   /** Web search provider config */
   websearch?: {
-    /** 'auto' tries providers in order until one works, 'random' rotates */
-    provider?: 'auto' | 'random' | 'brave' | 'serper' | 'tavily' | 'none';
+    /** 'auto' tries providers in order until one works, 'random' rotates, or specific provider */
+    provider?:
+      | 'auto'
+      | 'random'
+      | 'exa'
+      | 'firecrawl'
+      | 'parallel'
+      | 'tavily'
+      | 'tinyfish'
+      | 'brave'
+      | 'serper'
+      | 'duckduckgo'
+      | 'none';
+    exaApiKey?: string;
+    firecrawlApiKey?: string;
+    parallelApiKey?: string;
+    tavilyApiKey?: string;
+    tinyfishApiKey?: string;
     braveApiKey?: string;
     serperApiKey?: string;
-    tavilyApiKey?: string;
+    /** Preferred extraction provider for deep content reading (web_fetch) */
+    extractProvider?:
+      | 'auto'
+      | 'firecrawl'
+      | 'tavily'
+      | 'exa'
+      | 'tinyfish'
+      | 'native';
   };
   /** Tool output size limits */
   toolLimits?: {
@@ -860,7 +883,17 @@ export function generateDefaultConfigFile(): AfotConfig {
   return {
     defaultProvider: 'openrouter',
     providers,
-    websearch: { provider: 'auto', braveApiKey: '', serperApiKey: '', tavilyApiKey: '' },
+    websearch: {
+      provider: 'auto',
+      exaApiKey: '',
+      firecrawlApiKey: '',
+      parallelApiKey: '',
+      tavilyApiKey: '',
+      tinyfishApiKey: '',
+      braveApiKey: '',
+      serperApiKey: '',
+      extractProvider: 'auto',
+    },
     toolLimits: { maxOutputLines: 2000, maxOutputBytes: 51200 },
     compaction: { auto: true, keepTokens: 8000, bufferPercent: 10 },
     warming: { enabled: false, intervalSeconds: 300 },
@@ -1031,5 +1064,69 @@ export function toggleAfotFavorite(modelId: string): boolean {
     debugLogger.warn(`AFOT: Failed to write favorites.json: ${err}`);
   }
   return isFavorite;
+}
+
+/**
+ * Returns the effective web search & extraction config, merging ~/.afot/config.json
+ * with any active environment variables (e.g. EXA_API_KEY, FIRECRAWL_API_KEY, TAVILY_API_KEY).
+ */
+export function getAfotWebSearchConfig(): NonNullable<AfotConfig['websearch']> {
+  const config = readAfotConfig();
+  const ws = config?.websearch ?? {};
+
+  const exaApiKey = (process.env['EXA_API_KEY'] || ws.exaApiKey || '').trim();
+  const firecrawlApiKey = (
+    process.env['FIRECRAWL_API_KEY'] ||
+    ws.firecrawlApiKey ||
+    ''
+  ).trim();
+  const parallelApiKey = (
+    process.env['PARALLEL_API_KEY'] ||
+    ws.parallelApiKey ||
+    ''
+  ).trim();
+  const tavilyApiKey = (
+    process.env['TAVILY_API_KEY'] ||
+    ws.tavilyApiKey ||
+    ''
+  ).trim();
+  const tinyfishApiKey = (
+    process.env['TINYFISH_API_KEY'] ||
+    ws.tinyfishApiKey ||
+    ''
+  ).trim();
+  const braveApiKey = (
+    process.env['BRAVE_API_KEY'] ||
+    ws.braveApiKey ||
+    ''
+  ).trim();
+  const serperApiKey = (
+    process.env['SERPER_API_KEY'] ||
+    ws.serperApiKey ||
+    ''
+  ).trim();
+
+  // Explicit provider override or configured provider or 'auto'
+  const envProvider = process.env[
+    'AFOT_WEBSEARCH_PROVIDER'
+  ]?.trim() as NonNullable<AfotConfig['websearch']>['provider'];
+  const provider = envProvider || ws.provider || 'auto';
+
+  const envExtract = process.env[
+    'AFOT_WEBEXTRACT_PROVIDER'
+  ]?.trim() as NonNullable<AfotConfig['websearch']>['extractProvider'];
+  const extractProvider = envExtract || ws.extractProvider || 'auto';
+
+  return {
+    provider,
+    exaApiKey,
+    firecrawlApiKey,
+    parallelApiKey,
+    tavilyApiKey,
+    tinyfishApiKey,
+    braveApiKey,
+    serperApiKey,
+    extractProvider,
+  };
 }
 

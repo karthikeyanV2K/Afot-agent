@@ -91,6 +91,42 @@ class WebSearchToolInvocation extends BaseToolInvocation<
   async execute({
     abortSignal: signal,
   }: ExecuteOptions): Promise<WebSearchToolResult> {
+    const authType =
+      typeof this.context.config.getContentGeneratorConfig === 'function'
+        ? this.context.config.getContentGeneratorConfig()?.authType
+        : undefined;
+    const isAfotProvider =
+      authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY;
+
+    // Fast-path: When running on AFOT multi-provider (OpenCode, NVIDIA, OpenAI, etc.),
+    // immediately use the high-power AFOT web search engine instead of timing out on Gemini grounding.
+    if (isAfotProvider) {
+      try {
+        const response = await afotWebSearch(this.params.query);
+        const formatted = formatSearchResults(response);
+        return {
+          llmContent: wrapUntrusted(formatted),
+          returnDisplay: `Search results for "${this.params.query}" (via ${response.provider}).`,
+          sources: response.results.map((r) => ({
+            web: { title: r.title, uri: r.url },
+          })) as GroundingChunkItem[],
+        };
+      } catch (afotErr) {
+        debugLogger.error(`AFOT web search failed: ${afotErr}`);
+        const errorMessage = `Error during web search for query "${
+          this.params.query
+        }": ${getErrorMessage(afotErr)}`;
+        return {
+          llmContent: `Error: ${errorMessage}`,
+          returnDisplay: `Error performing web search.`,
+          error: {
+            message: errorMessage,
+            type: ToolErrorType.WEB_SEARCH_FAILED,
+          },
+        };
+      }
+    }
+
     const geminiClient = this.context.geminiClient;
 
     try {
@@ -190,7 +226,10 @@ class WebSearchToolInvocation extends BaseToolInvocation<
 
       // AFOT fallback — when Gemini grounding is unavailable (AFOT_AUTH provider),
       // use the provider-agnostic web search (Brave/Serper/Tavily/DuckDuckGo)
-      const authType = this.context.config.getContentGeneratorConfig()?.authType;
+      const authType =
+      typeof this.context.config.getContentGeneratorConfig === 'function'
+        ? this.context.config.getContentGeneratorConfig()?.authType
+        : undefined;
       if (authType === AuthType.AFOT_AUTH || authType === AuthType.GATEWAY) {
         debugLogger.log(
           'AFOT: Gemini web-search unavailable, using AFOT web search fallback',
