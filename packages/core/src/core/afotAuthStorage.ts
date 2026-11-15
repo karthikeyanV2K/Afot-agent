@@ -306,8 +306,17 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
   const envProvider = process.env['AFOT_PROVIDER']?.trim();
   if (envProvider) candidates.push(envProvider);
 
-  if (config?.defaultProvider?.trim()) {
-    candidates.push(config.defaultProvider.trim());
+  const rawAgent = (config as unknown as Record<string, unknown>)?.['agent'] as
+    | Record<string, unknown>
+    | undefined;
+  const configuredProvider =
+    config?.defaultProvider?.trim() ||
+    (typeof rawAgent?.['default_provider'] === 'string'
+      ? rawAgent['default_provider'].trim()
+      : undefined);
+
+  if (configuredProvider) {
+    candidates.push(configuredProvider);
   }
 
   // Add all authenticated providers as fallbacks
@@ -429,7 +438,14 @@ export function resolveAfotActiveProviderName(): string | null {
   }
 
   const config = readAfotConfig();
-  const configured = config?.defaultProvider?.trim();
+  const rawAgentConfig = (config as unknown as Record<string, unknown>)?.['agent'] as
+    | Record<string, unknown>
+    | undefined;
+  const configured =
+    config?.defaultProvider?.trim() ||
+    (typeof rawAgentConfig?.['default_provider'] === 'string'
+      ? rawAgentConfig['default_provider'].trim()
+      : undefined);
   if (configured) {
     const configuredEntry = authFile[configured];
     if (

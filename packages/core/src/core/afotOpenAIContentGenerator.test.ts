@@ -416,4 +416,40 @@ describe('AfotOpenAIContentGenerator', () => {
     expect(tools).toHaveLength(1);
     expect(tools[0].function.name).toBe('list_directory');
   });
+
+  it('recognizes 429 and FreeUsageLimitError as retryable fallback errors', () => {
+    const generator = new AfotOpenAIContentGenerator(provider, 'z-ai/glm-5.3-flash');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fn = (generator as any).isRetryableProviderError.bind(generator);
+
+    expect(fn({ status: 429 })).toBe(true);
+    expect(fn({ error: { type: 'FreeUsageLimitError' } })).toBe(true);
+    expect(fn({ message: 'Free usage limit reached. Subscribe to OpenCode Go.' })).toBe(true);
+    expect(fn({ name: 'APIConnectionTimeoutError' })).toBe(true);
+    expect(fn({ status: 404 })).toBe(false);
+  });
+
+  it('maps opencode free models to nvidia equivalents for auto-failover', () => {
+    const generator = new AfotOpenAIContentGenerator(
+      {
+        name: 'opencode',
+        key: 'test-token',
+        baseUrl: 'https://opencode.ai/inference/openai/v1',
+        models: ['deepseek-v4.1-flash-free'],
+        defaultModel: 'deepseek-v4.1-flash-free',
+      },
+      'deepseek-v4.1-flash-free',
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fallback = (generator as any).getFallbackProviderAndModel(
+      'opencode',
+      'deepseek-v4.1-flash-free',
+    );
+    expect(fallback).toBeDefined();
+    expect(['nvidia', 'openrouter']).toContain(fallback.targetProvider);
+    if (fallback.targetProvider === 'nvidia') {
+      expect(fallback.targetModel).toBe('deepseek-ai/deepseek-v4.1-flash');
+    }
+  });
 });

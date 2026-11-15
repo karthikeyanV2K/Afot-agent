@@ -965,10 +965,21 @@ Directives:
       code?: string;
       status?: number;
       message?: string;
+      error?: { type?: string; message?: string };
     };
     if (errorObj.name === 'APIConnectionTimeoutError') return true;
     if (errorObj.code === 'ETIMEDOUT' || errorObj.code === 'ECONNRESET') return true;
     if (errorObj.status === 504 || errorObj.status === 502 || errorObj.status === 503) return true;
+    // 429 / Quota exhausted / Free usage limit reached should trigger fallback to secondary configured provider
+    if (
+      errorObj.status === 429 ||
+      errorObj.error?.type === 'FreeUsageLimitError' ||
+      /free usage limit reached|usage limit reached|quota.*exceeded/i.test(
+        errorObj.message || errorObj.error?.message || '',
+      )
+    ) {
+      return true;
+    }
     if (
       typeof errorObj.message === 'string' &&
       /timed? ?out|socket hang up|econnreset/i.test(errorObj.message)
@@ -976,6 +987,58 @@ Directives:
       return true;
     }
     return false;
+  }
+
+  private getFallbackProviderAndModel(
+    currentProvider: string,
+    currentModel: string,
+  ): { targetProvider: string; targetModel: string } | null {
+    const priorityList: string[] = [];
+    if (currentProvider === 'opencode') {
+      priorityList.push('nvidia', 'openrouter');
+    } else if (currentProvider === 'nvidia') {
+      priorityList.push('openrouter', 'opencode');
+    } else {
+      priorityList.push('nvidia', 'opencode');
+    }
+
+    let availableProvider: string | null = null;
+    for (const p of priorityList) {
+      const resolved = resolveAfotProviderByName(p);
+      if (resolved?.key && resolved?.baseUrl) {
+        availableProvider = p;
+        break;
+      }
+    }
+    if (!availableProvider) return null;
+
+    let clean = currentModel.replace(/^(opencode|openrouter|nvidia)\//i, '');
+    clean = clean.replace(/-free$/, '');
+
+    let targetModel = clean;
+    if (availableProvider === 'nvidia') {
+      if (clean.includes('deepseek')) {
+        targetModel = 'deepseek-ai/deepseek-v4.1-flash';
+      } else if (clean.includes('glm')) {
+        targetModel = 'z-ai/glm-5.3-flash';
+      } else if (clean.includes('nemotron')) {
+        targetModel = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+      } else if (clean.includes('kimi') || clean.includes('moonshot')) {
+        targetModel = 'moonshotai/kimi-k2.6';
+      } else {
+        targetModel = 'z-ai/glm-5.3-flash';
+      }
+    } else if (availableProvider === 'openrouter') {
+      if (clean.includes('deepseek')) {
+        targetModel = 'deepseek/deepseek-v4.1-flash';
+      } else if (clean.includes('glm')) {
+        targetModel = 'z-ai/glm-5.3-flash';
+      } else {
+        targetModel = 'deepseek/deepseek-chat';
+      }
+    }
+
+    return { targetProvider: availableProvider, targetModel };
   }
 
   private getFallbackClient(
@@ -990,6 +1053,8 @@ Directives:
         model = model.replace(/^openrouter\//i, '');
       } else if (model.startsWith('opencode/')) {
         model = model.replace(/^opencode\//i, '');
+      } else if (model.startsWith('nvidia/')) {
+        model = model.replace(/^nvidia\//i, '');
       }
       if (targetProvider === 'openrouter' && model.startsWith('deepseek-ai/')) {
         model = model.replace(/^deepseek-ai\//, 'deepseek/');
@@ -1206,35 +1271,38 @@ Directives:
 
       return this.toGeminiResponse(completion, messages);
     } catch (err: unknown) {
-      if (
-        effectiveProvider !== 'openrouter' &&
-        this.isRetryableProviderError(err)
-      ) {
+      if (this.isRetryableProviderError(err)) {
         try {
-          const fallbackTarget =
-            BUILTIN_PROVIDERS['nvidia']?.models?.includes(finalModel) ||
-            finalModel.startsWith('nvidia/') ||
-            finalModel.startsWith('poolside/')
-              ? 'nvidia'
-              : 'openrouter';
-          const fallback = this.getFallbackClient(fallbackTarget, finalModel);
-          if (fallback) {
-            const completion = await fallback.client.chat.completions.create(
-              {
-                model: fallback.model,
-                messages,
-                ...(tools && { tools }),
-                ...(config?.temperature !== undefined && {
-                  temperature: config.temperature,
-                }),
-                max_tokens: config?.maxOutputTokens
-                  ? Math.min(config.maxOutputTokens, 8192)
-                  : 8192,
-                ...(config?.topP !== undefined && { top_p: config.topP }),
-              },
-              { timeout: 15000 },
+          const fallbackInfo = this.getFallbackProviderAndModel(
+            effectiveProvider,
+            finalModel,
+          );
+          if (fallbackInfo) {
+            const fallback = this.getFallbackClient(
+              fallbackInfo.targetProvider,
+              fallbackInfo.targetModel,
             );
-            return this.toGeminiResponse(completion, messages);
+            if (fallback) {
+              debugLogger.log(
+                `AFOT Auto-Failover: ${effectiveProvider} (${finalModel}) -> ${fallback.providerName} (${fallback.model})`,
+              );
+              const completion = await fallback.client.chat.completions.create(
+                {
+                  model: fallback.model,
+                  messages,
+                  ...(tools && { tools }),
+                  ...(config?.temperature !== undefined && {
+                    temperature: config.temperature,
+                  }),
+                  max_tokens: config?.maxOutputTokens
+                    ? Math.min(config.maxOutputTokens, 8192)
+                    : 8192,
+                  ...(config?.topP !== undefined && { top_p: config.topP }),
+                },
+                { timeout: 15000 },
+              );
+              return this.toGeminiResponse(completion, messages);
+            }
           }
         } catch {
           // Ignore fallback error and throw original error
@@ -1322,54 +1390,57 @@ Directives:
         );
       }
     } catch (err: unknown) {
-      if (
-        effectiveProvider !== 'openrouter' &&
-        this.isRetryableProviderError(err)
-      ) {
+      if (this.isRetryableProviderError(err)) {
         try {
-          const fallbackTarget =
-            BUILTIN_PROVIDERS['nvidia']?.models?.includes(finalModel) ||
-            finalModel.startsWith('nvidia/') ||
-            finalModel.startsWith('poolside/')
-              ? 'nvidia'
-              : 'openrouter';
-          const fallback = this.getFallbackClient(fallbackTarget, finalModel);
-          if (fallback) {
-            try {
-              stream = await fallback.client.chat.completions.create(
-                {
-                  model: fallback.model,
-                  messages,
-                  stream: true,
-                  stream_options: { include_usage: true },
-                  ...(tools && { tools }),
-                  ...(config?.temperature !== undefined && {
-                    temperature: config.temperature,
-                  }),
-                  max_tokens: config?.maxOutputTokens
-                    ? Math.min(config.maxOutputTokens, 8192)
-                    : 8192,
-                  ...(config?.topP !== undefined && { top_p: config.topP }),
-                },
-                { timeout: 15000 },
+          const fallbackInfo = this.getFallbackProviderAndModel(
+            effectiveProvider,
+            finalModel,
+          );
+          if (fallbackInfo) {
+            const fallback = this.getFallbackClient(
+              fallbackInfo.targetProvider,
+              fallbackInfo.targetModel,
+            );
+            if (fallback) {
+              debugLogger.log(
+                `AFOT Auto-Failover: ${effectiveProvider} (${finalModel}) -> ${fallback.providerName} (${fallback.model})`,
               );
-            } catch {
-              stream = await fallback.client.chat.completions.create(
-                {
-                  model: fallback.model,
-                  messages,
-                  stream: true,
-                  ...(tools && { tools }),
-                  ...(config?.temperature !== undefined && {
-                    temperature: config.temperature,
-                  }),
-                  max_tokens: config?.maxOutputTokens
-                    ? Math.min(config.maxOutputTokens, 8192)
-                    : 8192,
-                  ...(config?.topP !== undefined && { top_p: config.topP }),
-                },
-                { timeout: 15000 },
-              );
+              try {
+                stream = await fallback.client.chat.completions.create(
+                  {
+                    model: fallback.model,
+                    messages,
+                    stream: true,
+                    stream_options: { include_usage: true },
+                    ...(tools && { tools }),
+                    ...(config?.temperature !== undefined && {
+                      temperature: config.temperature,
+                    }),
+                    max_tokens: config?.maxOutputTokens
+                      ? Math.min(config.maxOutputTokens, 8192)
+                      : 8192,
+                    ...(config?.topP !== undefined && { top_p: config.topP }),
+                  },
+                  { timeout: 15000 },
+                );
+              } catch {
+                stream = await fallback.client.chat.completions.create(
+                  {
+                    model: fallback.model,
+                    messages,
+                    stream: true,
+                    ...(tools && { tools }),
+                    ...(config?.temperature !== undefined && {
+                      temperature: config.temperature,
+                    }),
+                    max_tokens: config?.maxOutputTokens
+                      ? Math.min(config.maxOutputTokens, 8192)
+                      : 8192,
+                    ...(config?.topP !== undefined && { top_p: config.topP }),
+                  },
+                  { timeout: 15000 },
+                );
+              }
             }
           }
         } catch {
