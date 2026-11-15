@@ -988,6 +988,17 @@ Directives:
     ) {
       return true;
     }
+    // 401 Unauthorized / 403 Forbidden / 404 Not Found (e.g. expired tokens or unsupported model on account)
+    if (
+      errorObj.status === 401 ||
+      errorObj.status === 403 ||
+      errorObj.status === 404 ||
+      /unauthorized|re-authenticate|token.*expired|invalid_token|invalid_grant|not found/i.test(
+        errorObj.message || errorObj.error?.message || '',
+      )
+    ) {
+      return true;
+    }
     if (
       typeof errorObj.message === 'string' &&
       /timed? ?out|socket hang up|econnreset/i.test(errorObj.message)
@@ -1020,8 +1031,8 @@ Directives:
     }
     if (!availableProvider) return null;
 
-    let clean = currentModel.replace(/^(opencode|openrouter|nvidia)\//i, '');
-    clean = clean.replace(/-free$/, '');
+    let clean = currentModel.replace(/^(opencode|openrouter|nvidia|cline-cli|cline-gui|kilo)\//i, '');
+    clean = clean.replace(/:free$/i, '').replace(/-free$/i, '');
 
     let targetModel = clean;
     if (availableProvider === 'nvidia') {
@@ -1029,6 +1040,8 @@ Directives:
         targetModel = 'deepseek-ai/deepseek-v4.1-flash';
       } else if (clean.includes('glm')) {
         targetModel = 'z-ai/glm-5.3-flash';
+      } else if (clean.includes('ultra')) {
+        targetModel = 'nvidia/nemotron-3-ultra-550b-a55b';
       } else if (clean.includes('nemotron')) {
         targetModel = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
       } else if (clean.includes('kimi') || clean.includes('moonshot')) {
@@ -1037,8 +1050,12 @@ Directives:
         targetModel = 'z-ai/glm-5.3-flash';
       }
     } else if (availableProvider === 'openrouter') {
-      if (clean.includes('deepseek')) {
-        targetModel = 'deepseek/deepseek-v4.1-flash';
+      if (clean.includes('ultra')) {
+        targetModel = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+      } else if (clean.includes('nemotron')) {
+        targetModel = 'nvidia/nemotron-3.5-lightning:free';
+      } else if (clean.includes('deepseek')) {
+        targetModel = 'deepseek/deepseek-chat';
       } else if (clean.includes('glm')) {
         targetModel = 'z-ai/glm-5.3-flash';
       } else {
@@ -1061,11 +1078,16 @@ Directives:
         model = model.replace(/^openrouter\//i, '');
       } else if (model.startsWith('opencode/')) {
         model = model.replace(/^opencode\//i, '');
-      } else if (model.startsWith('nvidia/')) {
-        model = model.replace(/^nvidia\//i, '');
       }
-      if (targetProvider === 'openrouter' && model.startsWith('deepseek-ai/')) {
-        model = model.replace(/^deepseek-ai\//, 'deepseek/');
+      if (targetProvider === 'nvidia') {
+        model = model.replace(/:free$/i, '').replace(/-free$/i, '');
+        if (!model.startsWith('nvidia/') && !model.includes('/') && BUILTIN_PROVIDERS['nvidia']?.models?.includes(`nvidia/${model}`)) {
+          model = `nvidia/${model}`;
+        }
+      } else if (targetProvider === 'openrouter') {
+        if (model.startsWith('deepseek-ai/')) {
+          model = model.replace(/^deepseek-ai\//, 'deepseek/');
+        }
       }
       const client = new OpenAI({
         apiKey: prov.key,
@@ -1139,16 +1161,33 @@ Directives:
     // 3. Explicit nvidia/ prefix -> route or normalize to NVIDIA
     if (requestedModel.startsWith('nvidia/')) {
       if (this.providerName === 'nvidia') {
+        const clean = requestedModel.replace(/:free$/i, '').replace(/-free$/i, '');
         return {
           client: this.client,
-          model: requestedModel,
+          model: clean,
           providerName: 'nvidia',
         };
       }
-      const fallback = this.getFallbackClient('nvidia', requestedModel);
+      // If current provider is OpenRouter, Cline, or Kilo, and it's a :free model, stay on current provider
+      const isFree = requestedModel.includes(':free') || requestedModel.includes('-free');
+      if (
+        (this.providerName === 'openrouter' ||
+          this.providerName === 'cline-cli' ||
+          this.providerName === 'cline-gui' ||
+          this.providerName === 'kilo') &&
+        isFree
+      ) {
+        return {
+          client: this.client,
+          model: requestedModel,
+          providerName: this.providerName,
+        };
+      }
+      const strippedModel = requestedModel.replace(/:free$/i, '').replace(/-free$/i, '');
+      const fallback = this.getFallbackClient('nvidia', strippedModel);
       if (fallback) {
         debugLogger.log(
-          `AFOT Auto-routing model "${requestedModel}" to nvidia`,
+          `AFOT Auto-routing model "${requestedModel}" to nvidia as "${strippedModel}"`,
         );
         return fallback;
       }
@@ -1201,6 +1240,8 @@ Directives:
     if (
       this.providerName === 'openrouter' &&
       isNvidiaModel &&
+      !effectiveModel.includes(':free') &&
+      !effectiveModel.includes('-free') &&
       !BUILTIN_PROVIDERS['openrouter']?.models?.includes(effectiveModel)
     ) {
       const fallback = this.getFallbackClient('nvidia', effectiveModel);
