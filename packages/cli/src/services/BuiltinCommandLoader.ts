@@ -68,6 +68,8 @@ import { upgradeCommand } from '../ui/commands/upgradeCommand.js';
 import { gemmaStatusCommand } from '../ui/commands/gemmaStatusCommand.js';
 import { voiceCommand } from '../ui/commands/voiceCommand.js';
 import { swarmCommand } from '../ui/commands/swarmCommand.js';
+import { approvalCommand } from '../ui/commands/approvalCommand.js';
+import { subagentsCommand } from '../ui/commands/subagentsCommand.js';
 
 /**
  * Loads the core, hard-coded slash commands that are an integral part
@@ -236,6 +238,8 @@ export class BuiltinCommandLoader implements ICommandLoader {
       tasksCommand,
       vimCommand,
       swarmCommand,
+      approvalCommand,
+      subagentsCommand,
       setupGithubCommand,
       terminalSetupCommand,
       ...(this.config?.isVoiceModeEnabled() ? [voiceCommand] : []),

@@ -7,7 +7,6 @@
 import type { AgentLoopContext } from '../config/agent-loop-context.js';
 import type { Config } from '../config/config.js';
 import type { LocalAgentDefinition, SubagentActivityEvent } from './types.js';
-import { type z } from 'zod';
 import { LocalAgentExecutor } from './local-executor.js';
 import { SwarmResearcherAgent } from './swarm-researcher.js';
 import { SwarmExplorerAgent } from './swarm-explorer.js';
@@ -164,10 +163,12 @@ export function calculateWaves(tasks: SwarmTask[]): string[][] {
 /**
  * Resolves a worker archetype to its corresponding LocalAgentDefinition.
  */
+ 
 export function getSwarmAgentDefinition(
   worker: SwarmWorkerType,
   config: Config,
-): LocalAgentDefinition<z.ZodTypeAny> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): LocalAgentDefinition<any> {
   switch (worker) {
     case 'researcher':
       return SwarmResearcherAgent(config);
@@ -599,7 +600,8 @@ Rules:
     const agentName = `swarm_${task.worker}`;
 
     const regDef = registry?.getDefinition(agentName);
-    const localDef: LocalAgentDefinition<z.ZodTypeAny> =
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const localDef: LocalAgentDefinition<any> =
       regDef && regDef.kind === 'local'
         ? regDef
         : getSwarmAgentDefinition(task.worker, config);
