@@ -208,6 +208,11 @@ export * from './agents/types.js';
 export * from './agents/agentLoader.js';
 export * from './agents/local-executor.js';
 export * from './agents/agent-scheduler.js';
+export * from './agents/swarm-researcher.js';
+export * from './agents/swarm-explorer.js';
+export * from './agents/swarm-coder.js';
+export * from './agents/swarm-verifier.js';
+export * from './agents/afotSwarmOrchestrator.js';
 
 // Export browser session management
 export { resetBrowserSession } from './agents/browser/browserAgentFactory.js';
