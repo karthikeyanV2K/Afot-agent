@@ -852,6 +852,44 @@ export const BUILTIN_PROVIDERS: Record<
     baseUrl: 'https://api.cline.bot/v1',
     models: ['claude-opus-4-0', 'claude-sonnet-4-5', 'gpt-4o', 'deepseek-r1'],
   },
+  'cline-gui': {
+    baseUrl: 'https://api.cline.bot/api/v1',
+    models: [
+      'nvidia/nemotron-3.5-lightning-free',
+      'deepseek/deepseek-v4-flash',
+      'kwaipilot/kat-coder-pro',
+      'inclusionai/ling-3.2-flash:free',
+      'google/gemini-4-hydrogen',
+    ],
+    defaultModel: 'nvidia/nemotron-3.5-lightning-free',
+  },
+  'cline-cli': {
+    baseUrl: 'https://api.cline.bot/api/v1',
+    models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3.5-lightning-free',
+      'deepseek/deepseek-v4-flash',
+      'google/gemini-4-hydrogen',
+      'inclusionai/ling-3.2-flash:free',
+      'kwaipilot/kat-coder-pro',
+    ],
+    defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+  },
+  kilo: {
+    baseUrl: 'https://ai-gateway.kilo.ai/api/v1',
+    models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'baidu/ernie-5.5-flash-preview:free',
+      'dots-studio/dots-3-note-preview:free',
+      'nvidia/nemotron-3.5-lightning:free',
+      'minimax/minimax-m3.1-flash:free',
+      'openrouter/free',
+      'recursive/flint-v1.0:free',
+      'nvidia/nemotron-3.5-super-vl:free',
+      'qwen/qwen3.8-27b:free',
+    ],
+    defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+  },
   // Local providers — no real key needed
   ollama: {
     baseUrl: 'http://localhost:11434/v1',
