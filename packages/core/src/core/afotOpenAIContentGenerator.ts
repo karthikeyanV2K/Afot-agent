@@ -995,11 +995,11 @@ Directives:
   ): { targetProvider: string; targetModel: string } | null {
     const priorityList: string[] = [];
     if (currentProvider === 'opencode') {
-      priorityList.push('nvidia', 'openrouter');
+      priorityList.push('openrouter', 'nvidia');
     } else if (currentProvider === 'nvidia') {
       priorityList.push('openrouter', 'opencode');
     } else {
-      priorityList.push('nvidia', 'opencode');
+      priorityList.push('openrouter', 'nvidia');
     }
 
     let availableProvider: string | null = null;
