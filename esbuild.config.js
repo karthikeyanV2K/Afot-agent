@@ -26,7 +26,7 @@ const cliPkg = require(path.resolve(__dirname, 'packages/cli/package.json'));
 const afotVersion =
   process.env.CLI_VERSION ||
   (cliPkg.version === '0.69.0-nightly.20261104.g89e9d25d6'
-    ? '1.3.0'
+    ? '1.3.1'
     : cliPkg.version);
 
 function createWasmPlugins() {
