@@ -100,6 +100,13 @@ export interface AfotConfig {
   defaultProvider?: string;
   /** Default model ID to use (e.g. "google/gemini-2.5-pro" for openrouter) */
   defaultModel?: string;
+  /**
+   * Token optimization / Eco Mode.
+   * - 'auto' (default): automatically enabled for free models (ending in -free) and opencode provider.
+   * - true: always enabled.
+   * - false: disabled.
+   */
+  ecoMode?: boolean | 'auto';
   /** Web search provider config */
   websearch?: {
     /** 'auto' tries providers in order until one works, 'random' rotates */
@@ -166,6 +173,29 @@ export function readAfotAuthFile(): AfotAuthFile | null {
 
 export function readAfotConfig(): AfotConfig | null {
   return readJsonFile<AfotConfig>(getAfotConfigFilePath());
+}
+
+/**
+ * Checks whether Eco Mode is active for a given provider and model.
+ * In Eco Mode, tool schemas are minified, conversational fast-paths are used,
+ * and system prompts are compressed to save up to 99% of input tokens.
+ */
+export function isEcoModeActive(
+  config: AfotConfig | null,
+  providerName?: string,
+  modelName?: string,
+): boolean {
+  if (process.env['AFOT_ECO_MODE'] === 'true' || process.env['AFOT_ECO_MODE'] === '1') return true;
+  if (process.env['AFOT_ECO_MODE'] === 'false' || process.env['AFOT_ECO_MODE'] === '0') return false;
+  const eco = config?.ecoMode ?? 'auto';
+  if (eco === true) return true;
+  if (eco === false) return false;
+  // 'auto' mode: active for free models or opencode provider
+  const prov = (providerName || '').toLowerCase();
+  const mod = (modelName || '').toLowerCase();
+  if (prov === 'opencode') return true;
+  if (mod.endsWith('-free') || mod.includes('-free-') || mod.includes('free')) return true;
+  return false;
 }
 
 // ─── Provider resolution ──────────────────────────────────────────────────────

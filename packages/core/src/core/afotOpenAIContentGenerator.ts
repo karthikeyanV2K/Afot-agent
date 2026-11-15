@@ -33,6 +33,8 @@ import {
   type AfotResolvedProvider,
   resolveAfotProviderByName,
   BUILTIN_PROVIDERS,
+  readAfotConfig,
+  isEcoModeActive,
 } from './afotAuthStorage.js';
 import { OPENCODE_FREE_MODELS } from './opencodeConsoleAuth.js';
 import { debugLogger } from '../utils/debugLogger.js';
@@ -58,6 +60,125 @@ interface GeminiFunctionDeclaration {
   name: string;
   description?: string;
   parametersJsonSchema?: Record<string, unknown>;
+}
+
+// ─── Token Optimizer & Eco Mode Helpers ─────────────────────────────────────
+
+const CORE_ESSENTIAL_TOOLS = new Set([
+  'read_file',
+  'read_many_files',
+  'write_file',
+  'edit',
+  'shell',
+  'run_command',
+  'glob',
+  'grep',
+  'ls',
+  'ask_user',
+  'complete_task',
+  'web_search',
+  'web_fetch',
+]);
+
+const CONCISE_TOOL_DESCRIPTIONS: Record<string, string> = {
+  read_file: 'Read file contents or specific line ranges.',
+  read_many_files: 'Read multiple files simultaneously.',
+  write_file: 'Write content to a file (creates or overwrites).',
+  edit: 'Edit an existing file by replacing target text.',
+  shell: 'Execute a command in the shell/terminal.',
+  run_command: 'Execute a command in the shell/terminal.',
+  glob: 'Find files matching a glob pattern.',
+  grep: 'Search for regex pattern across files.',
+  ls: 'List directory contents.',
+  ask_user: 'Ask user questions or confirmation.',
+  complete_task: 'Mark the current task as complete.',
+  web_search: 'Search the web for up-to-date information.',
+  web_fetch: 'Fetch and read content from a web URL.',
+};
+
+function minifySchema(schema: Record<string, unknown>): Record<string, unknown> {
+  if (!schema || typeof schema !== 'object') return schema;
+  const result: Record<string, unknown> = {};
+  if (schema['type']) result['type'] = schema['type'];
+  if (schema['description'] && typeof schema['description'] === 'string') {
+    const firstSentence = schema['description'].split('.')[0].trim();
+    result['description'] = firstSentence.length > 80 ? firstSentence.slice(0, 80) : firstSentence;
+  }
+  if (schema['properties'] && typeof schema['properties'] === 'object' && schema['properties'] !== null) {
+    const props: Record<string, unknown> = {};
+    const rawProps = schema['properties'] as Record<string, Record<string, unknown>>;
+    for (const [key, val] of Object.entries(rawProps)) {
+      if (typeof val === 'object' && val !== null) {
+        props[key] = minifySchema(val);
+      } else {
+        props[key] = val;
+      }
+    }
+    result['properties'] = props;
+  }
+  if (Array.isArray(schema['required']) && schema['required'].length > 0) {
+    result['required'] = schema['required'];
+  }
+  if (schema['enum']) result['enum'] = schema['enum'];
+  if (schema['items'] && typeof schema['items'] === 'object' && schema['items'] !== null) {
+    result['items'] = minifySchema(schema['items'] as Record<string, unknown>);
+  }
+  return result;
+}
+
+interface ConversationalDetection {
+  isGreeting: boolean;
+  cleanText: string;
+}
+
+const PURE_GREETING_REGEX =
+  /^(hi|hello|hey|heya|howdy|hola|greetings|yo|sup|good\s+(morning|afternoon|evening|day)|who\s+are\s+you|what\s+can\s+you\s+do|what\s+are\s+you|help)\b[\s!.,?]*$/i;
+
+const CODING_ACTION_TRIGGERS =
+  /\b(read|write|edit|run|check|test|build|compile|git|file|dir|folder|grep|find|search|fix|bug|issue|code|script|diff|terminal|bash|powershell|cmd|patch|delete|create)\b/i;
+
+const FILE_PATH_TRIGGER = /[\/\\]|\.\w{1,5}\b/;
+
+function detectConversationalTurn(rawContents: unknown): ConversationalDetection {
+  let contentList: GeminiContent[] = [];
+  if (Array.isArray(rawContents)) {
+    contentList = rawContents as GeminiContent[];
+  } else if (typeof rawContents === 'string') {
+    contentList = [{ role: 'user', parts: [{ text: rawContents }] }];
+  } else if (rawContents && typeof rawContents === 'object') {
+    contentList = [rawContents as GeminiContent];
+  }
+
+  // If any message in history contains tool calls or function responses, this is an active tool loop
+  for (const c of contentList) {
+    if (!c?.parts) continue;
+    if (c.parts.some((p) => p.functionCall || p.functionResponse)) {
+      return { isGreeting: false, cleanText: '' };
+    }
+  }
+
+  const userContents = contentList.filter((c) => c.role !== 'model');
+  if (userContents.length === 0) return { isGreeting: false, cleanText: '' };
+  const last = userContents[userContents.length - 1];
+  const fullText = (last.parts?.map((p) => p.text ?? '').join('') || '').trim();
+
+  // Strip session context and metadata tags
+  const clean = fullText
+    .replace(/<session_context>[\s\S]*?<\/session_context>/gi, '')
+    .replace(/<context>[\s\S]*?<\/context>/gi, '')
+    .trim();
+
+  if (
+    clean.length > 0 &&
+    clean.length < 60 &&
+    PURE_GREETING_REGEX.test(clean) &&
+    !CODING_ACTION_TRIGGERS.test(clean) &&
+    !FILE_PATH_TRIGGER.test(clean)
+  ) {
+    return { isGreeting: true, cleanText: clean };
+  }
+
+  return { isGreeting: false, cleanText: clean };
 }
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
@@ -88,6 +209,9 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     request: GenerateContentParameters,
     activeModelOverride?: string,
     activeProviderOverride?: string,
+    isGreeting?: boolean,
+    cleanGreetingText?: string,
+    isEco?: boolean,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
@@ -97,10 +221,33 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const effectiveModel = activeModelOverride || this.model;
     const effectiveProvider = activeProviderOverride || this.providerName;
 
-    // System instruction
+    // 1. Nano Fast-Path for Pure Greetings (Hybrid Method 1 & 2)
+    // Slashes input tokens to ~15-20 tokens, but sends to the real model so the user sees live output!
+    if (isGreeting) {
+      messages.push({
+        role: 'system',
+        content: `You are AFOT CLI running as model "${effectiveModel}" via provider "${effectiveProvider}". Be concise, friendly, and truthfully identify yourself as "${effectiveModel}".`,
+      });
+      messages.push({
+        role: 'user',
+        content: cleanGreetingText || 'hi',
+      });
+      return messages;
+    }
+
+    // 2. System instruction: Compact Eco Mode vs Standard
     const sysInstruction = req['systemInstruction'];
     const modelContext = `[Active Model: ${effectiveModel} | Provider: ${effectiveProvider}. You are running as model "${effectiveModel}" via provider "${effectiveProvider}" in AFOT CLI. Always identify yourself truthfully as "${effectiveModel}" when asked.]`;
-    if (sysInstruction) {
+
+    if (isEco) {
+      const ecoSysPrompt = `You are AFOT CLI, a concise terminal AI coding agent running as model "${effectiveModel}" via provider "${effectiveProvider}". Always identify yourself truthfully.
+Workspace: Inspect, edit, and execute code using available tools.
+Directives:
+1. Be direct, concise, and technical. Avoid conversational filler.
+2. Read files before editing. Verify changes with tests or build commands when appropriate.
+3. Use canonical tool calling syntax.`;
+      messages.push({ role: 'system', content: ecoSysPrompt });
+    } else if (sysInstruction) {
       const sysText = this.extractText(sysInstruction);
       if (sysText) {
         messages.push({ role: 'system', content: `${sysText}\n\n${modelContext}` });
@@ -215,16 +362,43 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
 
   private toOpenAITools(
     request: GenerateContentParameters,
+    isGreeting?: boolean,
+    isEco?: boolean,
   ): OpenAI.Chat.Completions.ChatCompletionTool[] | undefined {
+    // Zero-Tool Fast Path: pure greetings don't need any tool schemas (saves 12k tokens!)
+    if (isGreeting) {
+      return undefined;
+    }
+
     const config = request.config as
       | { tools?: Array<{ functionDeclarations?: GeminiFunctionDeclaration[] }> }
       | undefined;
 
-    const declarations = config?.tools?.flatMap(
+    let declarations = config?.tools?.flatMap(
       (t) => t.functionDeclarations ?? [],
     );
 
     if (!declarations?.length) return undefined;
+
+    if (isEco) {
+      // In Eco Mode, filter to essential tools + MCP tools, minify descriptions & schemas
+      declarations = declarations.filter(
+        (d) => CORE_ESSENTIAL_TOOLS.has(d.name) || d.name.startsWith('mcp_'),
+      );
+      return declarations.map((d) => ({
+        type: 'function' as const,
+        function: {
+          name: d.name,
+          description: CONCISE_TOOL_DESCRIPTIONS[d.name] || d.description || '',
+          parameters: minifySchema(
+            (d.parametersJsonSchema as Record<string, unknown>) ?? {
+              type: 'object',
+              properties: {},
+            },
+          ),
+        },
+      }));
+    }
 
     return declarations.map((d) => ({
       type: 'function' as const,
@@ -988,12 +1162,25 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const finalModel = resolved.model;
     const effectiveProvider = resolved.providerName;
 
+    const reqObj = request as unknown as Record<string, unknown>;
+    const conv = detectConversationalTurn(reqObj['contents']);
+    const afotCfg = readAfotConfig();
+    const isEco = isEcoModeActive(afotCfg, effectiveProvider, finalModel);
+    const isGreeting = conv.isGreeting;
+
+    debugLogger.log(
+      `AFOT Token Optimizer: greeting=${isGreeting}, eco=${isEco}, provider=${effectiveProvider}, model=${finalModel}`,
+    );
+
     const messages = this.toOpenAIMessages(
       request,
       finalModel,
       effectiveProvider,
+      isGreeting,
+      conv.cleanText,
+      isEco,
     );
-    const tools = this.toOpenAITools(request);
+    const tools = this.toOpenAITools(request, isGreeting, isEco);
     const config = request.config as
       | { temperature?: number; maxOutputTokens?: number; topP?: number }
       | undefined;
@@ -1071,12 +1258,25 @@ export class AfotOpenAIContentGenerator implements ContentGenerator {
     const finalModel = resolved.model;
     const effectiveProvider = resolved.providerName;
 
+    const reqObj = request as unknown as Record<string, unknown>;
+    const conv = detectConversationalTurn(reqObj['contents']);
+    const afotCfg = readAfotConfig();
+    const isEco = isEcoModeActive(afotCfg, effectiveProvider, finalModel);
+    const isGreeting = conv.isGreeting;
+
+    debugLogger.log(
+      `AFOT Token Optimizer: greeting=${isGreeting}, eco=${isEco}, provider=${effectiveProvider}, model=${finalModel}`,
+    );
+
     const messages = this.toOpenAIMessages(
       request,
       finalModel,
       effectiveProvider,
+      isGreeting,
+      conv.cleanText,
+      isEco,
     );
-    const tools = this.toOpenAITools(request);
+    const tools = this.toOpenAITools(request, isGreeting, isEco);
     const config = request.config as
       | { temperature?: number; maxOutputTokens?: number; topP?: number }
       | undefined;

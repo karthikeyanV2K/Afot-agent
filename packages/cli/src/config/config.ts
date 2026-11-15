@@ -113,6 +113,8 @@ export interface CliArgs {
   rawOutput: boolean | undefined;
   acceptRawOutputRisk: boolean | undefined;
   skipTrust: boolean | undefined;
+  eco?: boolean | undefined;
+  slim?: boolean | undefined;
   isCommand: boolean | undefined;
 }
 
@@ -228,6 +230,9 @@ export async function parseArguments(
       if (argv['list-models']) {
         argv['isCommand'] = true;
       }
+      if (argv['eco'] || argv['slim']) {
+        process.env['AFOT_ECO_MODE'] = 'true';
+      }
     }, true)
     // Ensure validation flows through .fail() for clean UX
     .fail((msg, err) => {
@@ -316,6 +321,17 @@ export async function parseArguments(
         .option('skip-trust', {
           type: 'boolean',
           description: 'Trust the current workspace for this session.',
+          default: false,
+        })
+        .option('eco', {
+          type: 'boolean',
+          description:
+            'Enable Eco Mode (token optimizer: minified schemas, core tool pruning, nano greetings).',
+          default: false,
+        })
+        .option('slim', {
+          type: 'boolean',
+          description: 'Alias for --eco.',
           default: false,
         })
         .option('worktree', {
