@@ -339,9 +339,13 @@ Directives:
             toolCallId = pendingCalls.shift()?.id ?? `call_${idx}`;
           }
 
+          let toolContent = JSON.stringify(resp.functionResponse!.response ?? {});
+          if (isEco && toolContent.length > 2000) {
+            toolContent = toolContent.slice(0, 2000) + '\n... [truncated for token efficiency]';
+          }
           messages.push({
             role: 'tool',
-            content: JSON.stringify(resp.functionResponse!.response ?? {}),
+            content: toolContent,
             tool_call_id: toolCallId,
           });
         });
@@ -352,6 +356,10 @@ Directives:
         }
         if (text.includes('<session_context>')) {
           text = text.replace(/Active model: [^\r\n]+/g, `Active model: ${effectiveModel}`);
+          if (isEco) {
+            // Strip huge directory tree from initial context — saves thousands of tokens per turn!
+            text = text.replace(/- \*\*Directory Structure:\*\*[\s\S]*?(?=<\/session_context>|$)/, '');
+          }
         }
         messages.push({ role, content: text });
       }
