@@ -8,6 +8,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { afotWebSearch, formatSearchResults } from './afotWebSearch.js';
 import { afotWebExtract, extractNativeClean } from './afotWebExtract.js';
 
+// DNS is not available (and must not be required) in unit tests.
+const isPrivateIpMock = vi.hoisted(() => vi.fn());
+vi.mock('../utils/fetch.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../utils/fetch.js')>()),
+  isPrivateIp: isPrivateIpMock,
+}));
+
 describe('afotWebSearch & formatSearchResults', () => {
   const originalFetch = globalThis.fetch;
 
@@ -210,6 +217,7 @@ describe('afotWebExtract', () => {
       text: async () => html,
     });
 
+    isPrivateIpMock.mockResolvedValue(false);
     const res = await extractNativeClean('https://example.com/article');
     expect(res.provider).toBe('native-reader');
     expect(res.content.toUpperCase()).toContain('REAL ARTICLE');
@@ -217,5 +225,35 @@ describe('afotWebExtract', () => {
     // Nav and footer should be stripped
     expect(res.content).not.toContain('Site Header');
     expect(res.content).not.toContain('Copyright 2026');
+  });
+
+  it('native reader refuses private/local addresses without fetching', async () => {
+    isPrivateIpMock.mockResolvedValue(true);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+    await expect(extractNativeClean('http://169.254.169.254/latest/meta-data')).rejects.toThrow(
+      /private or local/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('native reader rejects non-http(s) schemes', async () => {
+    isPrivateIpMock.mockResolvedValue(false);
+    globalThis.fetch = vi.fn();
+    await expect(extractNativeClean('file:///etc/passwd')).rejects.toThrow(/http/);
+  });
+
+  it('native reader does not follow redirects (they could point at internal hosts)', async () => {
+    isPrivateIpMock.mockResolvedValue(false);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 302,
+      statusText: 'Found',
+      headers: new Headers({ location: 'http://127.0.0.1/admin' }),
+      text: async () => '',
+    });
+    globalThis.fetch = fetchMock;
+    await expect(extractNativeClean('https://example.com/r')).rejects.toThrow(/Redirect/);
+    expect(fetchMock.mock.calls[0][1].redirect).toBe('manual');
   });
 });

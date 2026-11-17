@@ -126,8 +126,27 @@ Alternatively, use the built-in bin wrapper in the root directory:
   - <kbd>a</kbd> : Approve for the remainder of the session
   - <kbd>e</kbd> : Open in your configured external editor
 - **Instant One-Step Undo (`/undo`)**: Reverts both the last conversation turn and all file modifications made by the model in that turn with a single command. To open the interactive turn history picker, run `/undo list` or `/rewind`.
-- **Multi-Provider AI Engine**: Native support for OpenCode, Nvidia API Catalog, OpenRouter, Groq, DeepSeek, Google Gemini, Ollama, and custom OpenAI-compatible endpoints with dynamic failover and token counting.
+- **Multi-Provider AI Engine**: Native support for OpenCode, Nvidia API Catalog, OpenRouter, Groq, DeepSeek, Google Gemini, Ollama, and custom OpenAI-compatible endpoints with optional (opt-in) provider failover and token counting.
 - **Zero Background Hiding**: Full real-time execution outputs rendered directly in the terminal interface.
+
+---
+
+## 🔒 Security Defaults & Safety Switches
+
+AFOT is built so that nothing leaves your machine, and nothing executes, unless you turned it on. All switches live in `~/.afot/config.json` (or the matching environment variable, which wins):
+
+| Setting | Env var | Default | What it controls |
+| :--- | :--- | :--- | :--- |
+| `failover` | `AFOT_FAILOVER=1` | **off** | When a request fails (429/5xx/timeout), re-send the **whole conversation** to another configured provider. Off means your code only goes to the provider you selected. 401/403/404 never trigger failover. |
+| `pluginsEnabled` | `AFOT_PLUGINS=1` | **off** | Load JS plugins from `~/.afot/plugins` and `config.plugins`. Plugins run with your full privileges; files that are group/world-writable or owned by another user are refused. |
+| `embeddedToolCalls` | `AFOT_EMBEDDED_TOOL_CALLS=0` | on | Recover tool calls that some models print as text (`<invoke>`, DSML, …). They are ignored whenever the request already contains such markup (e.g. a fetched web page), to block prompt injection. |
+| — | `AFOT_REQUEST_TIMEOUT_MS` | 120000 | Timeout for non-streaming requests. |
+| — | `AFOT_MAX_OUTPUT_TOKENS` | 16384 | Upper bound for `max_tokens`. |
+| — | `AFOT_PATH_GUARD=off` | guard on | Disables the session-directory sandbox (not recommended). |
+
+**Path guard:** file tools may only touch the session directory unless you approve ("Allow once / always"). With no interactive confirmation available, access outside the directory is **denied**. `~/.afot` itself needs an explicit grant even if it sits inside your project directory. **The `shell` tool is not path-sandboxed** — a shell command can touch anything your user can, so keep command approval on for untrusted work.
+
+**Credentials:** `~/.afot/auth.json` and `config.json` are written atomically with mode `0600`. A corrupt `auth.json` makes AFOT stop with an error instead of silently replacing it.
 
 ---
 
@@ -176,6 +195,12 @@ npm run typecheck
 # Linting
 npm run lint
 ```
+
+---
+
+## 🙏 Attribution
+
+AFOT CLI is a fork of [Gemini CLI](https://github.com/google-gemini/gemini-cli) by Google LLC, licensed under Apache-2.0. Modifications by All For One Tech include the multi-provider (OpenAI-compatible) engine, the Cline/Kilo/OpenCode bridges, the swarm orchestrator, the session path guard, and removal of Google telemetry. See [NOTICE](./NOTICE).
 
 ---
 

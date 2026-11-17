@@ -20,8 +20,10 @@ import {
   setAfotProviderDefaultModel,
   setAfotProviderModels,
   readAfotConfig,
+  readAfotConfigStrict,
   getAfotConfigFilePath,
   ensureAfotDir,
+  atomicWriteFile,
 } from './afotAuthStorage.js';
 import { debugLogger } from '../utils/debugLogger.js';
 
@@ -110,7 +112,7 @@ export function discoverClineAccounts(): ClineDiscoveredAccount[] {
         id: 'cline-gui',
         alias: 'gui',
         name: 'Cline GUI (VS Code)',
-        email: accountData.userInfo?.email || 'karthi34x@gmail.com',
+        email: accountData.userInfo?.email || '(unknown)',
         userId: accountData.userInfo?.id || '',
         displayName: accountData.userInfo?.displayName || '',
         token: idToken,
@@ -158,9 +160,9 @@ export function discoverClineAccounts(): ClineDiscoveredAccount[] {
         id: 'cline-cli',
         alias: 'cli',
         name: 'Cline CLI (Account B)',
-        email: userInfo.email || 'karthikeyan56v@gmail.com',
+        email: userInfo.email || '(unknown)',
         userId: auth.accountId || userInfo.clineUserId || '',
-        displayName: userInfo.name || 'Mr.V2K',
+        displayName: userInfo.name || '',
         token: accessToken,
         tokenMasked: maskToken(accessToken),
         refreshToken: refreshToken,
@@ -271,6 +273,7 @@ export async function refreshClineAccountToken(
         refreshToken: target.refreshToken,
         grantType: 'refresh_token',
       }),
+      signal: AbortSignal.timeout(15000),
     });
 
     const data = (await res.json().catch(() => null)) as {
@@ -306,7 +309,7 @@ export async function refreshClineAccountToken(
           bData.providers.cline.settings.auth.accessToken = newAccessToken;
           bData.providers.cline.settings.auth.refreshToken = newRefreshToken;
           bData.providers.cline.settings.auth.expiresAt = newExpiresAt;
-          fs.writeFileSync(bProvidersPath, JSON.stringify(bData, null, 2), 'utf8');
+          atomicWriteFile(bProvidersPath, JSON.stringify(bData, null, 2));
         }
       }
     } else if (target.id === 'cline-gui') {
@@ -320,7 +323,7 @@ export async function refreshClineAccountToken(
         accountData.refreshToken = newRefreshToken;
         accountData.expiresAt = Math.floor(newExpiresAt / 1000);
         secrets['cline:clineAccountId'] = JSON.stringify(accountData);
-        fs.writeFileSync(secretsPath, JSON.stringify(secrets, null, 2), 'utf8');
+        atomicWriteFile(secretsPath, JSON.stringify(secrets, null, 2));
       }
     }
 
@@ -371,7 +374,7 @@ export async function activateClineAccount(
 
   // 2. Write/update provider definition in ~/.afot/config.json
   ensureAfotDir();
-  const config = readAfotConfig() || {};
+  const config = readAfotConfigStrict() || {};
   if (!config.providers) config.providers = {};
 
   config.providers[target.id] = {
@@ -383,7 +386,7 @@ export async function activateClineAccount(
   config.defaultModel = selectedModel;
 
   const configPath = getAfotConfigFilePath();
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
 
   // 3. Mark as default provider & models
   setAfotDefaultProvider(target.id);
@@ -406,7 +409,7 @@ export function setClineModel(modelId: string): { success: boolean; message: str
     return { success: false, message: 'Please specify a model ID.' };
   }
 
-  const config = readAfotConfig() || {};
+  const config = readAfotConfigStrict() || {};
   const currentProvider = config.defaultProvider || 'cline-cli';
 
   ensureAfotDir();
@@ -426,7 +429,7 @@ export function setClineModel(modelId: string): { success: boolean; message: str
 
   config.defaultModel = trimmed;
   const configPath = getAfotConfigFilePath();
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
 
   setAfotProviderDefaultModel(currentProvider, trimmed);
 
@@ -449,6 +452,7 @@ export async function fetchLiveClineModels(token?: string): Promise<string[]> {
       headers: {
         Authorization: `Bearer ${authToken}`,
       },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return DEFAULT_CLINE_MODELS;
     const body = (await res.json()) as { data?: Array<{ id: string }> };

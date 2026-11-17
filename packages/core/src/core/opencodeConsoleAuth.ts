@@ -24,13 +24,16 @@
  *   packages/core/src/console-access.ts            (defaultServer, headers())
  */
 
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { debugLogger } from '../utils/debugLogger.js';
 import {
   getAfotDir,
   readAfotAuthFile,
+  readAfotAuthFileStrict,
+  atomicWriteFile,
 } from './afotAuthStorage.js';
+
+const OPENCODE_FETCH_TIMEOUT_MS = 15000;
 
 // ─── Constants (from OpenCode source) ────────────────────────────────────────
 
@@ -96,24 +99,20 @@ export function getOpenCodeCredential(): OpenCodeOAuthCredential | null {
 
 export function saveOpenCodeCredential(cred: OpenCodeOAuthCredential): void {
   const authPath = path.join(getAfotDir(), 'auth.json');
-  let authFile = readAfotAuthFile() ?? {};
+  // Strict read: never replace an unreadable/corrupt auth.json with a file that
+  // only contains this credential (that would delete every other stored key).
+  const authFile = readAfotAuthFileStrict() ?? {};
   authFile[OPENCODE_PROVIDER_KEY] = cred as unknown as import('./afotAuthStorage.js').AfotAuthEntry;
-  fs.writeFileSync(authPath, JSON.stringify(authFile, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
+  atomicWriteFile(authPath, JSON.stringify(authFile, null, 2) + '\n', 0o600);
   debugLogger.log('AFOT: OpenCode Console credential saved');
 }
 
 export function clearOpenCodeCredential(): void {
   const authPath = path.join(getAfotDir(), 'auth.json');
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileStrict();
   if (!authFile) return;
   delete authFile[OPENCODE_PROVIDER_KEY];
-  fs.writeFileSync(authPath, JSON.stringify(authFile, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
+  atomicWriteFile(authPath, JSON.stringify(authFile, null, 2) + '\n', 0o600);
   debugLogger.log('AFOT: OpenCode Console credential cleared');
 }
 
@@ -138,6 +137,7 @@ export async function requestDeviceCode(
       client_id: OPENCODE_CLIENT_ID,
       supports_org_scope: true,
     }),
+    signal: AbortSignal.timeout(OPENCODE_FETCH_TIMEOUT_MS),
   });
 
   if (!resp.ok) {
@@ -153,12 +153,20 @@ export async function requestDeviceCode(
   const base = server.endsWith('/') ? server : `${server}/`;
   try {
     const resolved = new URL(data.verification_uri_complete, base);
-    // Only accept http/https — guard against malformed responses
-    if (resolved.protocol === 'http:' || resolved.protocol === 'https:') {
+    // Only accept http/https URLs on the console's own origin — a compromised
+    // or spoofed response must not be able to send the user to another site.
+    if (
+      (resolved.protocol === 'http:' || resolved.protocol === 'https:') &&
+      resolved.origin === new URL(base).origin
+    ) {
       data.verification_uri_complete = resolved.href;
+    } else {
+      throw new Error('Unexpected verification URL returned by OpenCode Console');
     }
-  } catch {
-    // If already absolute or unparseable, leave as-is
+  } catch (err) {
+    throw err instanceof Error
+      ? err
+      : new Error('Invalid verification URL returned by OpenCode Console');
   }
 
   return data;
@@ -181,6 +189,7 @@ export async function pollDeviceToken(
       device_code: deviceCode,
       client_id: OPENCODE_CLIENT_ID,
     }),
+    signal: AbortSignal.timeout(OPENCODE_FETCH_TIMEOUT_MS),
   });
 
   const body = (await resp.json()) as { error?: string } & Partial<OpenCodeTokenResponse>;
@@ -218,6 +227,7 @@ export async function refreshOpenCodeToken(
       refresh_token: refreshToken,
       client_id: OPENCODE_CLIENT_ID,
     }),
+    signal: AbortSignal.timeout(OPENCODE_FETCH_TIMEOUT_MS),
   });
 
   if (resp.status === 400) {
@@ -250,7 +260,10 @@ export async function fetchOpenCodeConsoleConfig(
   };
   if (orgId) headers['x-org-id'] = orgId;
 
-  const resp = await fetch(`${server}/api/v2/config`, { headers });
+  const resp = await fetch(`${server}/api/v2/config`, {
+    headers,
+    signal: AbortSignal.timeout(OPENCODE_FETCH_TIMEOUT_MS),
+  });
 
   if (resp.status === 401 || resp.status === 404) return null;
 

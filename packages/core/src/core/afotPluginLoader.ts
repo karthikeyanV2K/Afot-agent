@@ -31,7 +31,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { debugLogger } from '../utils/debugLogger.js';
-import { getAfotDir, readAfotConfig } from './afotAuthStorage.js';
+import {
+  getAfotDir,
+  readAfotConfig,
+  isAfotPluginsEnabled,
+} from './afotAuthStorage.js';
 
 // ─── Types (OpenCode-compatible) ─────────────────────────────────────────────
 
@@ -82,6 +86,30 @@ export function getLoadedPlugins(): ReadonlyArray<AfotPlugin> {
 
 function getPluginsDir(): string {
   return path.join(getAfotDir(), 'plugins');
+}
+
+/**
+ * Returns a reason string if the plugin file must not be loaded, else null.
+ * Plugins run with the user's full privileges, so on POSIX a file (or its
+ * directory) that is group/world-writable or owned by someone else is refused.
+ */
+export function validatePluginFile(filePath: string): string | null {
+  if (process.platform === 'win32') return null;
+  try {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+    for (const target of [filePath, path.dirname(filePath)]) {
+      const st = fs.statSync(target);
+      if ((st.mode & 0o022) !== 0) {
+        return `${target} is writable by group/others`;
+      }
+      if (uid !== undefined && st.uid !== uid && uid !== 0) {
+        return `${target} is not owned by the current user`;
+      }
+    }
+    return null;
+  } catch (err) {
+    return `cannot stat plugin: ${err}`;
+  }
 }
 
 function collectPluginPaths(): string[] {
@@ -152,6 +180,13 @@ export async function loadAfotPlugins(sessionID: string = ''): Promise<void> {
   if (_loadAttempted) return;
   _loadAttempted = true;
 
+  if (!isAfotPluginsEnabled()) {
+    debugLogger.log(
+      'AFOT Plugin: plugins are disabled (set "pluginsEnabled": true in ~/.afot/config.json or AFOT_PLUGINS=1 to enable)',
+    );
+    return;
+  }
+
   const pluginPaths = collectPluginPaths();
   if (pluginPaths.length === 0) return;
 
@@ -161,6 +196,12 @@ export async function loadAfotPlugins(sessionID: string = ''): Promise<void> {
     try {
       if (!fs.existsSync(filePath)) {
         debugLogger.warn(`AFOT Plugin: file not found: ${filePath}`);
+        continue;
+      }
+
+      const refusal = validatePluginFile(filePath);
+      if (refusal) {
+        debugLogger.warn(`AFOT Plugin: refusing to load ${filePath}: ${refusal}`);
         continue;
       }
 

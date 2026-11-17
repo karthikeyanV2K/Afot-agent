@@ -23,9 +23,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { resolveToRealPath, isSubpath } from '../utils/paths.js';
 import { debugLogger } from '../utils/debugLogger.js';
-import { getAfotDir } from './afotAuthStorage.js';
+import { getAfotDir, atomicWriteFile } from './afotAuthStorage.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,38 @@ const _grants: PathGrant[] = [];
 
 let _initialized = false;
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Explicit escape hatch (AFOT_PATH_GUARD=off). Used by unit tests that build
+ * tools without a confirmation bus. Never enabled implicitly.
+ */
+export function isPathGuardDisabled(): boolean {
+  return process.env['AFOT_PATH_GUARD']?.trim().toLowerCase() === 'off';
+}
+
+function isFilesystemRoot(p: string): boolean {
+  return path.parse(p).root === p;
+}
+
+function safeReal(p: string): string {
+  try {
+    return resolveToRealPath(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * AFOT's own state (auth.json, path-grants.json, plugins/…) is never covered by
+ * the session root or by grants for a *parent* directory. Reaching it requires a
+ * grant that targets the AFOT directory itself, so the model cannot read keys or
+ * give itself new grants just because the project lives under $HOME.
+ */
+function isProtectedAfotPath(real: string): boolean {
+  return isSubpath(safeReal(getAfotDir()), real);
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 function getGrantsFilePath(): string {
@@ -74,12 +107,30 @@ export function initPathGuard(sessionRoot?: string): void {
   // Load persisted always-grants
   const grantsPath = getGrantsFilePath();
   try {
+    // A grants file that other users can write is an easy way to grant
+    // access to anything, so it is ignored entirely.
+    if (process.platform !== 'win32') {
+      const st = fs.statSync(grantsPath);
+      if ((st.mode & 0o022) !== 0) {
+        debugLogger.warn(
+          `AFOT PathGuard: ignoring ${grantsPath} (writable by group/others)`,
+        );
+        return;
+      }
+    }
     const raw = fs.readFileSync(grantsPath, 'utf8');
     const data = JSON.parse(raw) as PersistedGrants;
     if (Array.isArray(data.grants)) {
       for (const g of data.grants) {
-        if (g.realPath && g.scope === 'always') {
+        if (
+          typeof g?.realPath === 'string' &&
+          path.isAbsolute(g.realPath) &&
+          !isFilesystemRoot(g.realPath) &&
+          g.scope === 'always'
+        ) {
           _grants.push(g);
+        } else {
+          debugLogger.warn('AFOT PathGuard: ignoring invalid persisted grant');
         }
       }
       debugLogger.log(
@@ -95,11 +146,12 @@ function persistAlwaysGrants(): void {
   const grantsPath = getGrantsFilePath();
   const always = _grants.filter((g) => g.scope === 'always');
   try {
-    fs.writeFileSync(
+    fs.mkdirSync(path.dirname(grantsPath), { recursive: true, mode: 0o700 });
+    atomicWriteFile(
       grantsPath,
       JSON.stringify({ grants: always } satisfies PersistedGrants, null, 2) +
         '\n',
-      { encoding: 'utf8', mode: 0o600 },
+      0o600,
     );
   } catch (err) {
     debugLogger.warn(`AFOT PathGuard: failed to persist grants: ${err}`);
@@ -130,6 +182,12 @@ export function isPathAllowed(targetPath: string): boolean {
     real = path.resolve(targetPath);
   }
 
+  // AFOT's own state directory needs an explicit grant on that directory.
+  if (isProtectedAfotPath(real)) {
+    const afotReal = safeReal(getAfotDir());
+    return _grants.some((g) => isSubpath(afotReal, g.realPath) && isSubpath(g.realPath, real));
+  }
+
   // Always allow inside session root
   if (isSubpath(_sessionRoot, real)) return true;
 
@@ -153,6 +211,12 @@ export function grantPath(grantPath: string, scope: PathGrantScope): void {
     real = resolveToRealPath(grantPath);
   } catch {
     real = path.resolve(grantPath);
+  }
+
+  // Never grant the whole filesystem.
+  if (isFilesystemRoot(real)) {
+    debugLogger.warn('AFOT PathGuard: refusing to grant the filesystem root');
+    return;
   }
 
   // Avoid duplicates
@@ -210,12 +274,19 @@ export function clearOnceGrants(): void {
  * (the immediate parent directory) so the grant is useful for all files in that dir.
  */
 export function normalizeGrantTarget(targetPath: string): string {
+  const broad = (dir: string, file: string): string => {
+    // A file directly in $HOME or in the filesystem root must not turn into a
+    // grant for the entire home directory (which holds ~/.ssh, ~/.afot, …).
+    const home = safeReal(os.homedir());
+    return dir === home || isFilesystemRoot(dir) ? file : dir;
+  };
   try {
     const real = resolveToRealPath(targetPath);
     const stat = fs.statSync(real);
-    return stat.isDirectory() ? real : path.dirname(real);
+    return stat.isDirectory() ? real : broad(path.dirname(real), real);
   } catch {
     // Path may not exist yet (write_file creating new file)
-    return path.dirname(path.resolve(targetPath));
+    const abs = path.resolve(targetPath);
+    return broad(path.dirname(abs), abs);
   }
 }

@@ -58,14 +58,14 @@ function formatPlanDisplay(plan: SwarmPlan): string {
 function formatWorkersDisplay(): string {
   return `## 🐝 AFOT Swarm Worker Archetypes & Eco Tool Masking
 
-| Worker Archetype | Pre-Pruned Tools | Max Turns | Token Overhead | Description |
+| Worker Archetype | Pre-Pruned Tools | Max Turns | Approx. Token Overhead | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | **\`researcher\`** | \`web_search\`, \`web_fetch\` | 6 | **~300 tokens** | Online documentation, API specs, and technical research. |
 | **\`explorer\`** | \`read_file\`, \`glob\`, \`grep\`, \`ls\` | 8 | **~450 tokens** | Read-only codebase discovery and file structure mapping. |
 | **\`coder\`** | \`read_file\`, \`edit\`, \`write_file\` | 10 | **~400 tokens** | Surgical code modification and implementation. |
 | **\`verifier\`** | \`shell\`, \`read_file\` | 8 | **~320 tokens** | Test execution, lint verification, and build validation. |
 
-👉 **Token Savings:** Standard monolithic sessions transmit ~10,000–12,000 tokens of tool schemas every turn. AFOT Swarm pre-prunes tools per archetype, achieving **~96% token reduction** per worker turn with 0 context pollution!`;
+👉 **Token Savings:** Standard monolithic sessions transmit roughly 10,000–12,000 tokens of tool schemas every turn. AFOT Swarm pre-prunes tools per archetype, which substantially reduces the tool-schema tokens sent per worker turn (the exact saving depends on your provider and model).`;
 }
 
 export const swarmCommand: SlashCommand = {
@@ -242,7 +242,7 @@ Execute complex software engineering goals across parallel, token-isolated worke
         'info',
         `Swarm completed in ${(result.totalDurationMs / 1000).toFixed(
           1,
-        )}s | ~${result.tokensSavedEstimate.toLocaleString()} tokens saved!`,
+        )}s | ~${result.tokensSavedEstimate.toLocaleString()} tokens saved (rough estimate)`,
       );
     } catch (err) {
       debugLogger.error('Swarm execution error:', err);

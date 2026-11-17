@@ -62,6 +62,121 @@ export function getAfotConfigFilePath(): string {
   return path.join(getAfotDir(), 'config.json');
 }
 
+// ─── Safe file I/O ────────────────────────────────────────────────────────────
+
+/**
+ * Atomically writes a file: data goes to a temp file in the same directory and
+ * is then renamed over the target, so readers never see a half-written file
+ * and a crash can never leave a truncated auth.json behind.
+ *
+ * `mode` defaults to the existing file's mode (so we never loosen permissions
+ * on files we don't own, e.g. other tools' credential files) or 0o600 for new
+ * files. The final chmod also tightens files that were created earlier with
+ * looser permissions (writeFileSync only applies `mode` on creation).
+ */
+export function atomicWriteFile(
+  filePath: string,
+  data: string,
+  mode?: number,
+): void {
+  let effectiveMode = mode;
+  if (effectiveMode === undefined) {
+    try {
+      effectiveMode = fs.statSync(filePath).mode & 0o777;
+    } catch {
+      effectiveMode = 0o600;
+    }
+  }
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmpPath, data, { encoding: 'utf8', mode: effectiveMode });
+    fs.renameSync(tmpPath, filePath);
+    try {
+      fs.chmodSync(filePath, effectiveMode);
+    } catch {
+      // chmod is best-effort (e.g. Windows)
+    }
+  } catch (err) {
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch {
+      // ignore cleanup failure
+    }
+    throw err;
+  }
+}
+
+/**
+ * Like readJsonFile, but distinguishes "file does not exist" (returns null)
+ * from "file exists but is unreadable/corrupt" (throws). Writers must use this
+ * so a transient read or parse failure can never be mistaken for an empty file
+ * and cause every stored credential to be overwritten.
+ */
+function readJsonFileStrict<T extends object>(filePath: string): T | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${filePath} has unexpected format; refusing to overwrite`);
+  }
+  // The shape of auth/config files is validated field by field by the readers;
+  // here we only guarantee "a JSON object", which is what makes overwriting safe.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  return parsed as T;
+}
+
+export function readAfotAuthFileStrict(): AfotAuthFile | null {
+  return readJsonFileStrict<AfotAuthFile>(getAfotAuthFilePath());
+}
+
+export function readAfotConfigStrict(): AfotConfig | null {
+  return readJsonFileStrict<AfotConfig>(getAfotConfigFilePath());
+}
+
+function envFlag(name: string): boolean | undefined {
+  const v = process.env[name]?.trim().toLowerCase();
+  if (v === 'true' || v === '1') return true;
+  if (v === 'false' || v === '0') return false;
+  return undefined;
+}
+
+/**
+ * Cross-provider failover re-sends the whole conversation to a *different*
+ * provider, so it is strictly opt-in (AFOT_FAILOVER=1 or config.failover=true).
+ */
+export function isAfotFailoverEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  return envFlag('AFOT_FAILOVER') ?? config?.failover === true;
+}
+
+/**
+ * Parsing tool calls out of model *text* (DSML / XML / minimax) is needed by
+ * some models but can be abused by prompt injection. On by default, can be
+ * disabled with AFOT_EMBEDDED_TOOL_CALLS=0 or config.embeddedToolCalls=false.
+ */
+export function isAfotEmbeddedToolParsingEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  return (
+    envFlag('AFOT_EMBEDDED_TOOL_CALLS') ?? config?.embeddedToolCalls !== false
+  );
+}
+
+/** Plugins execute arbitrary JS, so they are strictly opt-in. */
+export function isAfotPluginsEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  return envFlag('AFOT_PLUGINS') ?? config?.pluginsEnabled === true;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AfotApiAuth {
@@ -158,6 +273,19 @@ export interface AfotConfig {
   references?: Record<string, { path?: string; url?: string; branch?: string }>;
   /** Plugin file paths or npm package names */
   plugins?: string[];
+  /**
+   * Allow loading JS plugins from ~/.afot/plugins and `plugins` paths.
+   * Plugins run with full user privileges, so this defaults to false.
+   */
+  pluginsEnabled?: boolean;
+  /**
+   * Allow re-sending a failed request (full conversation) to another configured
+   * provider. Defaults to false: your code and context only go to the provider
+   * you selected.
+   */
+  failover?: boolean;
+  /** Parse tool calls embedded in model text (DSML/XML). Defaults to true. */
+  embeddedToolCalls?: boolean;
 }
 
 /** Fully resolved, ready-to-use provider credentials + config */
@@ -208,8 +336,16 @@ export function isEcoModeActive(
   providerName?: string,
   modelName?: string,
 ): boolean {
-  if (process.env['AFOT_ECO_MODE'] === 'true' || process.env['AFOT_ECO_MODE'] === '1') return true;
-  if (process.env['AFOT_ECO_MODE'] === 'false' || process.env['AFOT_ECO_MODE'] === '0') return false;
+  if (
+    process.env['AFOT_ECO_MODE'] === 'true' ||
+    process.env['AFOT_ECO_MODE'] === '1'
+  )
+    return true;
+  if (
+    process.env['AFOT_ECO_MODE'] === 'false' ||
+    process.env['AFOT_ECO_MODE'] === '0'
+  )
+    return false;
   const eco = config?.ecoMode ?? 'auto';
   if (eco === true) return true;
   if (eco === false) return false;
@@ -217,7 +353,14 @@ export function isEcoModeActive(
   const prov = (providerName || '').toLowerCase();
   const mod = (modelName || '').toLowerCase();
   if (prov === 'opencode') return true;
-  if (mod.endsWith('-free') || mod.includes('-free-') || mod.includes('free')) return true;
+  if (
+    mod.endsWith('-free') ||
+    mod.endsWith(':free') ||
+    mod.includes('-free-') ||
+    mod.includes(':free-')
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -267,14 +410,13 @@ export function getAllAfotProviderStatus(): Array<{
       authEntry?.type === 'oauth'
         ? (authEntry as AfotOAuthAuth).access_token?.trim()
         : '';
-    const provConfig =
-      config?.providers?.[name] ?? BUILTIN_PROVIDERS[name];
+    const provConfig = config?.providers?.[name] ?? BUILTIN_PROVIDERS[name];
     const baseUrl =
       provConfig?.baseUrl ||
       (name === 'opencode'
-        ? (authEntry?.type === 'oauth' && (authEntry as AfotOAuthAuth)['server']
-            ? String((authEntry as AfotOAuthAuth)['server'])
-            : 'https://opencode.ai/console')
+        ? authEntry?.type === 'oauth' && (authEntry as AfotOAuthAuth)['server']
+          ? String((authEntry as AfotOAuthAuth)['server'])
+          : 'https://opencode.ai/console'
         : BUILTIN_PROVIDERS[name]?.baseUrl || '');
     return {
       name,
@@ -324,7 +466,10 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
     if (entry.type === 'api' && (entry as AfotApiAuth).key?.trim()) {
       candidates.push(name);
     }
-    if (entry.type === 'oauth' && (entry as AfotOAuthAuth).access_token?.trim()) {
+    if (
+      entry.type === 'oauth' &&
+      (entry as AfotOAuthAuth).access_token?.trim()
+    ) {
       candidates.push(name);
     }
   }
@@ -394,9 +539,7 @@ export function resolveAfotProviderByName(
   if (!key) return null;
 
   const oauthServer =
-    entry.type === 'oauth'
-      ? (entry as AfotOAuthAuth)['server']
-      : undefined;
+    entry.type === 'oauth' ? (entry as AfotOAuthAuth)['server'] : undefined;
   const server =
     typeof oauthServer === 'string' && oauthServer.trim()
       ? oauthServer.trim()
@@ -427,20 +570,19 @@ export function resolveAfotActiveProviderName(): string | null {
   const envProvider = process.env['AFOT_PROVIDER']?.trim();
   if (envProvider) {
     const envEntry = authFile[envProvider];
-    if (
-      envEntry?.type === 'api' &&
-      (envEntry as AfotApiAuth).key?.trim()
-    ) return envProvider;
+    if (envEntry?.type === 'api' && (envEntry as AfotApiAuth).key?.trim())
+      return envProvider;
     if (
       envEntry?.type === 'oauth' &&
       (envEntry as AfotOAuthAuth).access_token?.trim()
-    ) return envProvider;
+    )
+      return envProvider;
   }
 
   const config = readAfotConfig();
-  const rawAgentConfig = (config as unknown as Record<string, unknown>)?.['agent'] as
-    | Record<string, unknown>
-    | undefined;
+  const rawAgentConfig = (config as unknown as Record<string, unknown>)?.[
+    'agent'
+  ] as Record<string, unknown> | undefined;
   const configured =
     config?.defaultProvider?.trim() ||
     (typeof rawAgentConfig?.['default_provider'] === 'string'
@@ -471,18 +613,32 @@ export function resolveAfotActiveProviderName(): string | null {
 
 export function filterAfotChatModels(models: readonly string[]): string[] {
   const excluded = [
-    'embed', 'embedding', 'retriever', 'retrieval', 'rerank', 'reward',
-    'guardrail', 'safety', 'moderation', 'nemoguard', 'topic-control',
-    'detector', 'llama-guard', 'clip', 'calibration', 'parse',
+    'embed',
+    'embedding',
+    'retriever',
+    'retrieval',
+    'rerank',
+    'reward',
+    'guardrail',
+    'safety',
+    'moderation',
+    'nemoguard',
+    'topic-control',
+    'detector',
+    'llama-guard',
+    'clip',
+    'calibration',
+    'parse',
   ];
-  return models.filter((model) =>
-    !excluded.some((token) => model.toLowerCase().includes(token)),
+  return models.filter(
+    (model) => !excluded.some((token) => model.toLowerCase().includes(token)),
   );
 }
 
 export function sortAfotModels(models: readonly string[]): string[] {
-  return Array.from(new Set(models.filter((model) => model.trim())))
-    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  return Array.from(new Set(models.filter((model) => model.trim()))).sort(
+    (left, right) => left.localeCompare(right, undefined, { numeric: true }),
+  );
 }
 
 export async function fetchAfotProviderModels(
@@ -494,14 +650,17 @@ export async function fetchAfotProviderModels(
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
-    const response = await fetch(`${resolved.baseUrl.replace(/\/+$/, '')}/models`, {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${resolved.key}`,
-        ...resolved.headers,
+    const response = await fetch(
+      `${resolved.baseUrl.replace(/\/+$/, '')}/models`,
+      {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${resolved.key}`,
+          ...resolved.headers,
+        },
+        signal: controller.signal,
       },
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout));
+    ).finally(() => clearTimeout(timeout));
 
     if (!response.ok) {
       return Array.from(new Set(resolved.models ?? []));
@@ -513,9 +672,7 @@ export async function fetchAfotProviderModels(
     const ids = Array.isArray(body.data)
       ? body.data
           .map((model) => model.id)
-          .filter(
-            (id): id is string => typeof id === 'string' && id.length > 0,
-          )
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
       : [];
     if (ids.length === 0 && Array.isArray(body.models)) {
       ids.push(
@@ -523,7 +680,11 @@ export async function fetchAfotProviderModels(
           (id): id is string => typeof id === 'string' && id.length > 0,
         ),
       );
-    } else if (ids.length === 0 && body.models && typeof body.models === 'object') {
+    } else if (
+      ids.length === 0 &&
+      body.models &&
+      typeof body.models === 'object'
+    ) {
       ids.push(...Object.keys(body.models));
     }
     const filteredIds = filterAfotChatModels(ids);
@@ -590,7 +751,11 @@ export async function findExecutableAfotModel(
         executableModelCache.set(cacheKey, model);
         return model;
       }
-      if (response.status === 401 || response.status === 403 || response.status === 429) {
+      if (
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 429
+      ) {
         return candidateModels[0] ?? models[0];
       }
     } catch {
@@ -610,7 +775,7 @@ export function setAfotProviderModels(
   if (models.length === 0) return;
   ensureAfotDir();
   const configPath = getAfotConfigFilePath();
-  const config = readAfotConfig() ?? generateDefaultConfigFile();
+  const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
   config.providers = {
     ...(config.providers ?? {}),
     [providerName]: {
@@ -623,7 +788,7 @@ export function setAfotProviderModels(
       ...(defaultModel ? { defaultModel } : {}),
     },
   };
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
 }
 
 /**
@@ -964,12 +1129,11 @@ export function generateDefaultConfigFile(): AfotConfig {
 export function setAfotProviderKey(providerName: string, key: string): void {
   ensureAfotDir();
   const authPath = getAfotAuthFilePath();
-  let authFile = readAfotAuthFile() ?? generateBlankAuthFile();
+  // Strict read: a corrupt/unreadable auth.json throws instead of being
+  // silently replaced by a blank file (which would wipe every stored key).
+  const authFile = readAfotAuthFileStrict() ?? generateBlankAuthFile();
   authFile[providerName] = { type: 'api', key };
-  fs.writeFileSync(authPath, JSON.stringify(authFile, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
+  atomicWriteFile(authPath, JSON.stringify(authFile, null, 2) + '\n', 0o600);
   debugLogger.log(`AFOT: Key saved for provider "${providerName}"`);
 }
 
@@ -980,9 +1144,9 @@ export function setAfotProviderKey(providerName: string, key: string): void {
 export function setAfotDefaultProvider(providerName: string): void {
   ensureAfotDir();
   const configPath = getAfotConfigFilePath();
-  const config = readAfotConfig() ?? generateDefaultConfigFile();
+  const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
   config.defaultProvider = providerName;
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
   debugLogger.log(`AFOT: Default provider set to "${providerName}"`);
 }
 
@@ -996,7 +1160,7 @@ export function setAfotDefaultProvider(providerName: string): void {
 export function ensureAfotDir(): void {
   const dir = getAfotDir();
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 
   const authPath = getAfotAuthFilePath();
@@ -1015,7 +1179,10 @@ export function ensureAfotDir(): void {
     fs.writeFileSync(
       configPath,
       JSON.stringify(defaultConfig, null, 2) + '\n',
-      'utf8',
+      {
+        encoding: 'utf8',
+        mode: 0o600,
+      },
     );
     debugLogger.log(`AFOT: Created default config.json at ${configPath}`);
   }
@@ -1030,7 +1197,7 @@ export function setAfotProviderDefaultModel(
 ): void {
   ensureAfotDir();
   const configPath = getAfotConfigFilePath();
-  const config = readAfotConfig() ?? generateDefaultConfigFile();
+  const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
   if (!config.providers) {
     config.providers = {};
   }
@@ -1038,7 +1205,7 @@ export function setAfotProviderDefaultModel(
     config.providers[providerName] = { baseUrl: '' };
   }
   config.providers[providerName].defaultModel = modelId;
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
   debugLogger.log(
     `AFOT: Default model for provider "${providerName}" set to "${modelId}"`,
   );
@@ -1073,11 +1240,7 @@ export function saveAfotRecentModel(modelId: string, provider: string): void {
     ...existing.filter((r) => !(r.id === modelId && r.provider === provider)),
   ].slice(0, 20);
   try {
-    fs.writeFileSync(
-      recentPath,
-      JSON.stringify(updated, null, 2) + '\n',
-      'utf8',
-    );
+    atomicWriteFile(recentPath, JSON.stringify(updated, null, 2) + '\n', 0o600);
   } catch (err) {
     debugLogger.warn(`AFOT: Failed to write recent_models.json: ${err}`);
   }
@@ -1109,10 +1272,10 @@ export function toggleAfotFavorite(modelId: string): boolean {
     isFavorite = true;
   }
   try {
-    fs.writeFileSync(
+    atomicWriteFile(
       favPath,
       JSON.stringify(Array.from(favs), null, 2) + '\n',
-      'utf8',
+      0o600,
     );
   } catch (err) {
     debugLogger.warn(`AFOT: Failed to write favorites.json: ${err}`);
@@ -1183,4 +1346,3 @@ export function getAfotWebSearchConfig(): NonNullable<AfotConfig['websearch']> {
     extractProvider,
   };
 }
-

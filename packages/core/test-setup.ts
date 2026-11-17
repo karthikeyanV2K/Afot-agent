@@ -19,6 +19,10 @@ coreEvents.setMaxListeners(100);
 // Disable 429 simulation globally for all tests
 setSimulate429(false);
 
+// Unit tests construct tools without a confirmation bus; the AFOT path guard
+// now fails closed, so tests opt out explicitly (guard tests re-enable it).
+process.env['AFOT_PATH_GUARD'] = 'off';
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });

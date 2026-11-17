@@ -62,8 +62,8 @@ function renderClineOverview(activeAccount: ClineDiscoveredAccount | null): stri
   lines.push('──────────────────────────────────────────────────────────────────────────────────────');
   lines.push('  DIRECT COMMANDS (No need to use /model):');
   lines.push('──────────────────────────────────────────────────────────────────────────────────────');
-  lines.push('  • /cline use gui              Switch to Account 1 (VS Code GUI - karthi34x)');
-  lines.push('  • /cline use cli (or b)       Switch to Account 2 (Account B CLI - karthikeyan56v)');
+  lines.push('  • /cline use gui              Switch to the Cline VS Code GUI account');
+  lines.push('  • /cline use cli (or b)       Switch to the Cline CLI account (Account B)');
   lines.push('  • /cline use kilo             Switch to Kilo Code Gateway & Free Models');
   lines.push('  • /cline models [gui|cli]     List all available models for an account');
   lines.push('  • /cline model <model-id>     Directly change model for active Cline session');

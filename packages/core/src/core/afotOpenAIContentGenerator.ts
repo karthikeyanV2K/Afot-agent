@@ -35,6 +35,8 @@ import {
   BUILTIN_PROVIDERS,
   readAfotConfig,
   isEcoModeActive,
+  isAfotFailoverEnabled,
+  isAfotEmbeddedToolParsingEnabled,
 } from './afotAuthStorage.js';
 import { OPENCODE_FREE_MODELS } from './opencodeConsoleAuth.js';
 import { debugLogger } from '../utils/debugLogger.js';
@@ -61,6 +63,48 @@ interface GeminiFunctionDeclaration {
   description?: string;
   parametersJsonSchema?: Record<string, unknown>;
 }
+
+// ─── Limits ───────────────────────────────────────────────────────────────────
+
+function envInt(name: string, fallback: number): number {
+  const n = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Non-streaming requests wait for the whole completion, so they need room. */
+const NON_STREAM_TIMEOUT_MS = envInt('AFOT_REQUEST_TIMEOUT_MS', 120_000);
+/** For streams this only bounds connection + first byte. */
+const STREAM_CONNECT_TIMEOUT_MS = envInt('AFOT_STREAM_TIMEOUT_MS', 60_000);
+/** Upper bound for max_tokens; providers reject Gemini's default of 65536. */
+const MAX_OUTPUT_TOKENS_CAP = envInt('AFOT_MAX_OUTPUT_TOKENS', 16_384);
+/** Hard cap on tool calls recovered from model text. */
+const MAX_EMBEDDED_TOOL_CALLS = 8;
+
+function resolveMaxTokens(requested: number | undefined): number {
+  return requested && requested > 0
+    ? Math.min(requested, MAX_OUTPUT_TOKENS_CAP)
+    : MAX_OUTPUT_TOKENS_CAP;
+}
+
+/** Reads the provider-specific reasoning field (reasoning_content / reasoning). */
+function extractReasoning(obj: object | null | undefined): string {
+  if (!obj) return '';
+  if (
+    'reasoning_content' in obj &&
+    typeof obj.reasoning_content === 'string' &&
+    obj.reasoning_content
+  ) {
+    return obj.reasoning_content;
+  }
+  if ('reasoning' in obj && typeof obj.reasoning === 'string') {
+    return obj.reasoning;
+  }
+  return '';
+}
+
+/** Markup that some models emit instead of native tool calls. */
+const EMBEDDED_TOOL_MARKUP =
+  /<\|?\s*DSML|<invoke\b|<tool_calls?>|\]<\]minimax\[>|<\|tool\s*calls/i;
 
 // ─── Token Optimizer & Eco Mode Helpers ─────────────────────────────────────
 
@@ -155,6 +199,12 @@ function detectConversationalTurn(rawContents: unknown): ConversationalDetection
     if (c.parts.some((p) => p.functionCall || p.functionResponse)) {
       return { isGreeting: false, cleanText: '' };
     }
+  }
+
+  // A greeting fast-path replaces the whole prompt, so it must never fire in
+  // the middle of a conversation ("help"/"yo" after real work would lose context).
+  if (contentList.some((c) => c?.role === 'model')) {
+    return { isGreeting: false, cleanText: '' };
   }
 
   const userContents = contentList.filter((c) => c.role !== 'model');
@@ -313,9 +363,7 @@ Directives:
               (c) =>
                 c.id === respId ||
                 c.id.endsWith(`_${respId}`) ||
-                respId.endsWith(`_${c.id}`) ||
-                c.id.endsWith(respId) ||
-                respId.endsWith(c.id),
+                respId.endsWith(`_${c.id}`),
             );
             if (matchIdx !== -1) {
               toolCallId = pendingCalls[matchIdx].id;
@@ -341,7 +389,11 @@ Directives:
 
           let toolContent = JSON.stringify(resp.functionResponse!.response ?? {});
           if (isEco && toolContent.length > 2000) {
-            toolContent = toolContent.slice(0, 2000) + '\n... [truncated for token efficiency]';
+            // Keep head AND tail: errors and summaries are usually at the end.
+            toolContent =
+              toolContent.slice(0, 1200) +
+              '\n... [truncated for token efficiency] ...\n' +
+              toolContent.slice(-800);
           }
           messages.push({
             role: 'tool',
@@ -349,7 +401,10 @@ Directives:
             tool_call_id: toolCallId,
           });
         });
-      } else if (textParts.length > 0) {
+      } else if (
+        textParts.length > 0 ||
+        content.parts.some((p) => p.inlineData)
+      ) {
         let text = textParts.map((p) => p.text).join('');
         if (text.includes('This is the Gemini CLI.')) {
           text = text.replace('This is the Gemini CLI.', 'This is AFOT CLI.');
@@ -361,7 +416,31 @@ Directives:
             text = text.replace(/- \*\*Directory Structure:\*\*[\s\S]*?(?=<\/session_context>|$)/, '');
           }
         }
-        messages.push({ role, content: text });
+        const imageParts =
+          role === 'user'
+            ? content.parts.filter(
+                (p) => p.inlineData?.data && p.inlineData.mimeType?.startsWith('image/'),
+              )
+            : [];
+        if (content.parts.some((p) => p.inlineData) && imageParts.length === 0) {
+          debugLogger.warn('AFOT: dropped non-image inlineData part (unsupported by OpenAI adapter)');
+        }
+        if (imageParts.length > 0) {
+          messages.push({
+            role: 'user',
+            content: [
+              ...(text ? [{ type: 'text' as const, text }] : []),
+              ...imageParts.map((p) => ({
+                type: 'image_url' as const,
+                image_url: {
+                  url: `data:${p.inlineData!.mimeType};base64,${p.inlineData!.data}`,
+                },
+              })),
+            ],
+          });
+        } else {
+          messages.push({ role, content: text });
+        }
       }
     }
 
@@ -663,7 +742,7 @@ Directives:
       .replace(/\]<\]minimax\[>\[?/g, '')
       .trim();
 
-    return { cleanText, toolCalls };
+    return { cleanText, toolCalls: toolCalls.slice(0, MAX_EMBEDDED_TOOL_CALLS) };
   }
 
   private createGeminiResponse(data: {
@@ -700,6 +779,7 @@ Directives:
   private toGeminiResponse(
     completion: OpenAI.Chat.Completions.ChatCompletion,
     messages?: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    allowEmbedded = true,
   ): GenerateContentResponse {
     const choice = completion.choices[0];
     if (!choice) {
@@ -711,10 +791,18 @@ Directives:
     const parts: GeminiPart[] = [];
 
     // Text content (including reasoning/thinking models like Nemotron/GLM/DeepSeek)
+    const contentText = choice.message.content || '';
+    const reasoningText = extractReasoning(choice.message);
+    const hasNativeToolCalls =
+      !!choice.message.tool_calls && choice.message.tool_calls.length > 0;
+    // Reasoning is a *thought*, not part of the answer: keep it out of the
+    // visible text (and the conversation history). Only if the provider put the
+    // whole answer into the reasoning field do we fall back to showing it.
+    if (contentText && reasoningText) {
+      parts.push({ text: reasoningText, thought: true });
+    }
     const rawContent =
-      choice.message.content ||
-      (choice.message as unknown as { reasoning_content?: string }).reasoning_content ||
-      (choice.message as unknown as { reasoning?: string }).reasoning;
+      contentText || (hasNativeToolCalls ? '' : reasoningText) || undefined;
 
     // Tool calls from native OpenAI choice.message.tool_calls
     if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
@@ -741,7 +829,9 @@ Directives:
       }
     } else if (rawContent) {
       // Check for text-based embedded tool calls (MiniMax, GLM, DeepSeek XML style)
-      const parsed = this.parseEmbeddedTextToolCalls(rawContent);
+      const parsed = allowEmbedded
+        ? this.parseEmbeddedTextToolCalls(rawContent)
+        : { cleanText: rawContent, toolCalls: [] };
       if (parsed.toolCalls.length > 0) {
         if (parsed.cleanText) {
           parts.push({ text: parsed.cleanText });
@@ -880,7 +970,12 @@ Directives:
       : available[0] ?? providerStripped;
   }
 
-  private handleOpenAIError(err: unknown, currentProvider?: string): never {
+  private handleOpenAIError(
+    err: unknown,
+    currentProvider?: string,
+    currentModel?: string,
+  ): never {
+    const modelName = currentModel || this.model;
     const errorObj = err as {
       status?: number;
       message?: string;
@@ -945,8 +1040,8 @@ Directives:
     ) {
       const displayMsg =
         errorMessage.includes('Function') && errorMessage.includes('Not found for account')
-          ? `Model "${this.model}" is not available on your ${provName} account. Please select an available model in /model.`
-          : errorMessage || `Model "${this.model}" is unavailable on ${provName}.`;
+          ? `Model "${modelName}" is not available on your ${provName} account. Please select an available model in /model.`
+          : errorMessage || `Model "${modelName}" is unavailable on ${provName}.`;
       throw new ModelNotFoundError(
         displayMsg,
         status || 404,
@@ -959,11 +1054,67 @@ Directives:
       errorObj.code === 'ETIMEDOUT'
     ) {
       throw new Error(
-        `Request timed out for model "${this.model}" on ${provName} (upstream server not responding). Please switch to an active model via /model (e.g. nvidia/nemotron-3.5-super-vl-120b-a12b).`,
+        `Request timed out for model "${modelName}" on ${provName} (upstream server not responding). Please switch to an active model via /model (e.g. nvidia/nemotron-3.5-super-vl-120b-a12b).`,
       );
     }
 
     throw err;
+  }
+
+  private isStreamOptionsUnsupported(err: unknown): boolean {
+    if (typeof err !== 'object' || err === null) return false;
+    const status = 'status' in err ? err.status : undefined;
+    const message = 'message' in err ? err.message : undefined;
+    if (status !== 400 && status !== 422) return false;
+    return /stream_options|unknown (parameter|field)|unrecognized|unsupported|extra inputs/i.test(
+      typeof message === 'string' ? message : '',
+    );
+  }
+
+  /**
+   * Tool calls recovered from model *text* are only trusted when the request
+   * itself carries no such markup. If a tool result or user message already
+   * contains <invoke>/DSML/... the model may simply be echoing untrusted data
+   * (a web page, a file), and turning that into real tool calls would be a
+   * prompt-injection path to code execution.
+   */
+  private allowEmbeddedToolCalls(
+    request: GenerateContentParameters,
+    hasTools: boolean,
+  ): boolean {
+    if (!hasTools || !isAfotEmbeddedToolParsingEnabled()) return false;
+    // Scan the raw request structurally (as unknown) — it may be a Content[],
+    // a single Content, or a string, and nothing here may throw.
+    const raw: unknown = 'contents' in request ? request.contents : undefined;
+    const list: unknown[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const c of list) {
+      if (typeof c !== 'object' || c === null) continue;
+      const role = 'role' in c ? c.role : undefined;
+      const parts = 'parts' in c ? c.parts : undefined;
+      if (!Array.isArray(parts)) continue;
+      for (const part of parts) {
+        if (typeof part !== 'object' || part === null) continue;
+        const functionResponse =
+          'functionResponse' in part ? part.functionResponse : undefined;
+        const text = 'text' in part ? part.text : undefined;
+        if (functionResponse) {
+          try {
+            if (EMBEDDED_TOOL_MARKUP.test(JSON.stringify(functionResponse))) {
+              return false;
+            }
+          } catch {
+            return false;
+          }
+        } else if (
+          role !== 'model' &&
+          typeof text === 'string' &&
+          EMBEDDED_TOOL_MARKUP.test(text)
+        ) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   private isRetryableProviderError(err: unknown): boolean {
@@ -988,17 +1139,9 @@ Directives:
     ) {
       return true;
     }
-    // 401 Unauthorized / 403 Forbidden / 404 Not Found (e.g. expired tokens or unsupported model on account)
-    if (
-      errorObj.status === 401 ||
-      errorObj.status === 403 ||
-      errorObj.status === 404 ||
-      /unauthorized|re-authenticate|token.*expired|invalid_token|invalid_grant|not found/i.test(
-        errorObj.message || errorObj.error?.message || '',
-      )
-    ) {
-      return true;
-    }
+    // 401/403/404 are deliberately NOT retryable: they mean "your credentials or
+    // model are wrong for this provider", and silently re-sending the
+    // conversation to another provider would hide that and leak context.
     if (
       typeof errorObj.message === 'string' &&
       /timed? ?out|socket hang up|econnreset/i.test(errorObj.message)
@@ -1269,7 +1412,6 @@ Directives:
   ): Promise<GenerateContentResponse> {
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
-    this.model = modelToUse;
 
     const resolved = this.getEffectiveClientAndModel(modelToUse);
     const clientToUse = resolved.client;
@@ -1295,6 +1437,7 @@ Directives:
       isEco,
     );
     const tools = this.toOpenAITools(request, isGreeting, isEco);
+    const allowEmbedded = this.allowEmbeddedToolCalls(request, !!tools);
     const config = request.config as
       | { temperature?: number; maxOutputTokens?: number; topP?: number }
       | undefined;
@@ -1308,19 +1451,17 @@ Directives:
           ...(config?.temperature !== undefined && {
             temperature: config.temperature,
           }),
-          // Cap max_tokens to 8192 by default — many providers reject Gemini's
+          // Cap max_tokens (AFOT_MAX_OUTPUT_TOKENS, default 16384) — many providers reject Gemini's
           // default of 65536 unless you have sufficient credits/quota
-          max_tokens: config?.maxOutputTokens
-            ? Math.min(config.maxOutputTokens, 8192)
-            : 8192,
+          max_tokens: resolveMaxTokens(config?.maxOutputTokens),
           ...(config?.topP !== undefined && { top_p: config.topP }),
         },
-        { timeout: 15000 },
+        { timeout: NON_STREAM_TIMEOUT_MS },
       );
 
-      return this.toGeminiResponse(completion, messages);
+      return this.toGeminiResponse(completion, messages, allowEmbedded);
     } catch (err: unknown) {
-      if (this.isRetryableProviderError(err)) {
+      if (isAfotFailoverEnabled() && this.isRetryableProviderError(err)) {
         try {
           const fallbackInfo = this.getFallbackProviderAndModel(
             effectiveProvider,
@@ -1332,8 +1473,8 @@ Directives:
               fallbackInfo.targetModel,
             );
             if (fallback) {
-              debugLogger.log(
-                `AFOT Auto-Failover: ${effectiveProvider} (${finalModel}) -> ${fallback.providerName} (${fallback.model})`,
+              debugLogger.warn(
+                `AFOT Auto-Failover (opt-in): ${effectiveProvider} (${finalModel}) -> ${fallback.providerName} (${fallback.model})`,
               );
               const completion = await fallback.client.chat.completions.create(
                 {
@@ -1343,21 +1484,19 @@ Directives:
                   ...(config?.temperature !== undefined && {
                     temperature: config.temperature,
                   }),
-                  max_tokens: config?.maxOutputTokens
-                    ? Math.min(config.maxOutputTokens, 8192)
-                    : 8192,
+                  max_tokens: resolveMaxTokens(config?.maxOutputTokens),
                   ...(config?.topP !== undefined && { top_p: config.topP }),
                 },
-                { timeout: 15000 },
+                { timeout: NON_STREAM_TIMEOUT_MS },
               );
-              return this.toGeminiResponse(completion, messages);
+              return this.toGeminiResponse(completion, messages, allowEmbedded);
             }
           }
         } catch {
           // Ignore fallback error and throw original error
         }
       }
-      this.handleOpenAIError(err, effectiveProvider);
+      this.handleOpenAIError(err, effectiveProvider, finalModel);
     }
   }
 
@@ -1368,7 +1507,6 @@ Directives:
   ): Promise<AsyncGenerator<GenerateContentResponse>> {
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
-    this.model = modelToUse;
 
     const resolved = this.getEffectiveClientAndModel(modelToUse);
     const clientToUse = resolved.client;
@@ -1394,6 +1532,7 @@ Directives:
       isEco,
     );
     const tools = this.toOpenAITools(request, isGreeting, isEco);
+    const allowEmbedded = this.allowEmbeddedToolCalls(request, !!tools);
     const config = request.config as
       | { temperature?: number; maxOutputTokens?: number; topP?: number }
       | undefined;
@@ -1413,14 +1552,15 @@ Directives:
             ...(config?.temperature !== undefined && {
               temperature: config.temperature,
             }),
-            max_tokens: config?.maxOutputTokens
-              ? Math.min(config.maxOutputTokens, 8192)
-              : 8192,
+            max_tokens: resolveMaxTokens(config?.maxOutputTokens),
             ...(config?.topP !== undefined && { top_p: config.topP }),
           },
-          { timeout: 15000 },
+          { timeout: STREAM_CONNECT_TIMEOUT_MS },
         );
       } catch (streamOptErr: unknown) {
+        // Only retry without stream_options if the provider rejected that
+        // parameter; auth/quota/network errors must not be sent twice.
+        if (!this.isStreamOptionsUnsupported(streamOptErr)) throw streamOptErr;
         stream = await clientToUse.chat.completions.create(
           {
             model: finalModel,
@@ -1430,16 +1570,14 @@ Directives:
             ...(config?.temperature !== undefined && {
               temperature: config.temperature,
             }),
-            max_tokens: config?.maxOutputTokens
-              ? Math.min(config.maxOutputTokens, 8192)
-              : 8192,
+            max_tokens: resolveMaxTokens(config?.maxOutputTokens),
             ...(config?.topP !== undefined && { top_p: config.topP }),
           },
-          { timeout: 15000 },
+          { timeout: STREAM_CONNECT_TIMEOUT_MS },
         );
       }
     } catch (err: unknown) {
-      if (this.isRetryableProviderError(err)) {
+      if (isAfotFailoverEnabled() && this.isRetryableProviderError(err)) {
         try {
           const fallbackInfo = this.getFallbackProviderAndModel(
             effectiveProvider,
@@ -1451,8 +1589,8 @@ Directives:
               fallbackInfo.targetModel,
             );
             if (fallback) {
-              debugLogger.log(
-                `AFOT Auto-Failover: ${effectiveProvider} (${finalModel}) -> ${fallback.providerName} (${fallback.model})`,
+              debugLogger.warn(
+                `AFOT Auto-Failover (opt-in): ${effectiveProvider} (${finalModel}) -> ${fallback.providerName} (${fallback.model})`,
               );
               try {
                 stream = await fallback.client.chat.completions.create(
@@ -1465,14 +1603,15 @@ Directives:
                     ...(config?.temperature !== undefined && {
                       temperature: config.temperature,
                     }),
-                    max_tokens: config?.maxOutputTokens
-                      ? Math.min(config.maxOutputTokens, 8192)
-                      : 8192,
+                    max_tokens: resolveMaxTokens(config?.maxOutputTokens),
                     ...(config?.topP !== undefined && { top_p: config.topP }),
                   },
-                  { timeout: 15000 },
+                  { timeout: STREAM_CONNECT_TIMEOUT_MS },
                 );
-              } catch {
+              } catch (fallbackStreamOptErr: unknown) {
+                if (!this.isStreamOptionsUnsupported(fallbackStreamOptErr)) {
+                  throw fallbackStreamOptErr;
+                }
                 stream = await fallback.client.chat.completions.create(
                   {
                     model: fallback.model,
@@ -1482,12 +1621,10 @@ Directives:
                     ...(config?.temperature !== undefined && {
                       temperature: config.temperature,
                     }),
-                    max_tokens: config?.maxOutputTokens
-                      ? Math.min(config.maxOutputTokens, 8192)
-                      : 8192,
+                    max_tokens: resolveMaxTokens(config?.maxOutputTokens),
                     ...(config?.topP !== undefined && { top_p: config.topP }),
                   },
-                  { timeout: 15000 },
+                  { timeout: STREAM_CONNECT_TIMEOUT_MS },
                 );
               }
             }
@@ -1497,7 +1634,7 @@ Directives:
         }
       }
       if (!stream) {
-        this.handleOpenAIError(err, effectiveProvider);
+        this.handleOpenAIError(err, effectiveProvider, finalModel);
       }
     }
 
@@ -1515,6 +1652,7 @@ Directives:
       let totalTokensFromStream: number | undefined;
       let cachedTokensFromStream: number | undefined;
       let wasTextStreamed = false;
+      let accumulatedReasoning = '';
 
       try {
         for await (const chunk of stream) {
@@ -1540,10 +1678,22 @@ Directives:
           const delta = choice?.delta;
           if (!delta && !choice) continue;
 
-          const textDelta =
-            delta?.content ||
-            (delta as unknown as { reasoning_content?: string })?.reasoning_content ||
-            (delta as unknown as { reasoning?: string })?.reasoning;
+          const textDelta = delta?.content || undefined;
+          const reasoningDelta = extractReasoning(delta);
+          if (reasoningDelta && !textDelta) {
+            accumulatedReasoning += reasoningDelta;
+            yield self.createGeminiResponse({
+              candidates: [
+                {
+                  content: {
+                    role: 'model',
+                    parts: [{ text: reasoningDelta, thought: true }],
+                  },
+                  index: 0,
+                },
+              ],
+            });
+          }
 
           if (choice?.finish_reason) {
             finishReason = choice.finish_reason;
@@ -1553,11 +1703,12 @@ Directives:
             accumulatedText += textDelta;
             const normalizedAccum = accumulatedText.replace(/\uFF5C/g, '|');
             const isInsideEmbeddedToolCall =
-              normalizedAccum.includes(']<]minimax[>') ||
-              normalizedAccum.includes('<tool_call') ||
-              normalizedAccum.includes('<invoke') ||
-              normalizedAccum.includes('<|DSML|') ||
-              normalizedAccum.includes('<|tool');
+              allowEmbedded &&
+              (normalizedAccum.includes(']<]minimax[>') ||
+                normalizedAccum.includes('<tool_call') ||
+                normalizedAccum.includes('<invoke') ||
+                normalizedAccum.includes('<|DSML|') ||
+                normalizedAccum.includes('<|tool'));
 
             if (!isInsideEmbeddedToolCall) {
               wasTextStreamed = true;
@@ -1600,7 +1751,7 @@ Directives:
           }
         }
       } catch (err) {
-        self.handleOpenAIError(err);
+        self.handleOpenAIError(err, effectiveProvider, finalModel);
       }
 
       const computeFinalUsage = () => {
@@ -1628,7 +1779,7 @@ Directives:
       };
 
       // Check if text contained embedded tool calls (e.g. MiniMax, GLM, DeepSeek XML/JSON style)
-      if (accumulatedToolCalls.length === 0 && accumulatedText) {
+      if (allowEmbedded && accumulatedToolCalls.length === 0 && accumulatedText) {
         const parsed = self.parseEmbeddedTextToolCalls(accumulatedText);
         if (parsed.toolCalls.length > 0) {
           accumulatedToolCalls = parsed.toolCalls;
@@ -1675,6 +1826,9 @@ Directives:
         const parts: GeminiPart[] = [];
         if (accumulatedText && !wasTextStreamed) {
           parts.push({ text: accumulatedText });
+        } else if (!accumulatedText && !wasTextStreamed && accumulatedReasoning) {
+          // Provider returned the answer only in its reasoning field.
+          parts.push({ text: accumulatedReasoning });
         }
         yield self.createGeminiResponse({
           candidates: [

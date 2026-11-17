@@ -22,6 +22,9 @@
 import { convert } from 'html-to-text';
 import { debugLogger } from '../utils/debugLogger.js';
 import { getAfotWebSearchConfig } from './afotAuthStorage.js';
+import { isPrivateIp } from '../utils/fetch.js';
+
+const MAX_NATIVE_BYTES = 5 * 1024 * 1024;
 
 export interface ExtractedWebPage {
   url: string;
@@ -226,18 +229,33 @@ export async function extractNativeClean(
   url: string,
   signal?: AbortSignal,
 ): Promise<ExtractedWebPage> {
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('Only http(s) URLs can be fetched');
+  }
+  if (await isPrivateIp(url)) {
+    throw new Error(`Access to private or local address is not allowed: ${url}`);
+  }
   const res = await fetch(url, {
     headers: {
       'User-Agent': USER_AGENT,
       Accept:
         'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5',
     },
+    // Redirects could point at internal addresses after the check above.
+    redirect: 'manual',
     signal: createTimeoutSignal(EXTRACT_TIMEOUT_MS, signal),
   });
 
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(`Redirect (${res.status}) not followed by the native reader`);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  const declaredLength = Number(res.headers.get('content-length') ?? '0');
+  if (declaredLength > MAX_NATIVE_BYTES) {
+    throw new Error(`Response too large (${declaredLength} bytes)`);
+  }
   const contentType = res.headers.get('content-type') || '';
-  const rawText = await res.text();
+  const rawText = (await res.text()).slice(0, MAX_NATIVE_BYTES);
 
   if (contentType.includes('text/html') || rawText.includes('<html') || rawText.includes('<!DOCTYPE')) {
     const cleanedHtml = cleanHtmlChrome(rawText);
