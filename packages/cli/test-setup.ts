@@ -13,6 +13,9 @@ import { mockInkSpinner } from './src/test-utils/mockSpinner.js';
 // Globally mock ink-spinner to prevent non-deterministic snapshot/act flakes.
 mockInkSpinner();
 
+// The AFOT path guard fails closed without a confirmation bus; unit tests opt out explicitly.
+process.env['AFOT_PATH_GUARD'] = 'off';
+
 // Unset CI environment variable so that ink renders dynamically as it does in a real terminal
 if (process.env.CI !== undefined) {
   delete process.env.CI;

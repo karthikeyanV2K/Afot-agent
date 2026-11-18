@@ -28,6 +28,7 @@ import {
 } from '../utils/buildFileUtils.js';
 import {
   isPathAllowed,
+  isPathGuardDisabled,
   grantPath,
   normalizeGrantTarget,
 } from '../core/afotPathGuard.js';
@@ -199,14 +200,22 @@ export abstract class BaseToolInvocation<
     abortSignal: AbortSignal,
   ): Promise<void> {
     if (isPathAllowed(targetPath)) return;
+    if (isPathGuardDisabled()) return;
 
-    if (!this.messageBus || !this._toolName) {
-      return;
-    }
-
-    // Gracefully handle test mocks that don't fully implement MessageBus
-    if (typeof (this.messageBus as { subscribe?: unknown }).subscribe !== 'function') {
-      return;
+    // Fail CLOSED: outside the session directory, no confirmation channel
+    // (missing/incomplete message bus) means no access. Silently allowing it
+    // would turn the sandbox off whenever a tool was constructed without a bus.
+    if (
+      !this.messageBus ||
+      !this._toolName ||
+      typeof (this.messageBus as { subscribe?: unknown }).subscribe !== 'function'
+    ) {
+      throw Object.assign(
+        new Error(
+          `Access to "${normalizeGrantTarget(targetPath)}" was denied. The path is outside the session directory and no confirmation channel is available.`,
+        ),
+        { toolErrorType: ToolErrorType.USER_DENIED },
+      );
     }
 
     const grantTarget = normalizeGrantTarget(targetPath);

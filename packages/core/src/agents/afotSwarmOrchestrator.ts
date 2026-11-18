@@ -397,6 +397,15 @@ Rules:
                 });
               }
 
+              // Duplicate ids would collide in the task map; make them unique.
+              const seen = new Set<string>();
+              for (const t of validatedTasks) {
+                let id = t.id;
+                let n = 2;
+                while (seen.has(id)) id = `${t.id}-${n++}`;
+                seen.add(id);
+                t.id = id;
+              }
               const waves = calculateWaves(validatedTasks);
               return { goal, tasks: validatedTasks, waves };
             }
@@ -447,15 +456,18 @@ Rules:
         const task = taskMap.get(taskId);
         if (!task) continue;
 
-        // Check if any upstream dependency failed
+        // Check that every upstream dependency actually completed. A dependency
+        // that is still pending means a cycle (calculateWaves lumps cyclic tasks
+        // into one wave), which must not be run with unsatisfied inputs.
         const hasFailedDep = task.dependencies.some((depId) => {
           const dep = taskMap.get(depId);
-          return dep?.status === 'failed' || dep?.status === 'skipped';
+          return !!dep && dep.status !== 'completed';
         });
 
         if (hasFailedDep) {
           task.status = 'skipped';
-          task.error = 'Skipped because upstream dependency failed.';
+          task.error =
+            'Skipped because an upstream dependency failed or could not be satisfied (cycle?).';
           onProgress?.({
             type: 'task_failed',
             taskId: task.id,
@@ -471,62 +483,71 @@ Rules:
 
       if (runnableTasks.length === 0) continue;
 
-      // Execute all tasks in this wave in parallel!
-      await Promise.all(
-        runnableTasks.map(async (task) => {
-          if (signal?.aborted) {
-            task.status = 'failed';
-            task.error = 'Aborted by user signal.';
-            return;
-          }
+      // Execute the wave in parallel — except `coder` tasks, which write files
+      // and have no file-level locking: they run one after another so two
+      // workers can never edit the same file concurrently.
+      const runTask = async (task: SwarmTask): Promise<void> => {
+        if (signal?.aborted) {
+          task.status = 'failed';
+          task.error = 'Aborted by user signal.';
+          return;
+        }
 
-          task.status = 'running';
+        task.status = 'running';
+        onProgress?.({
+          type: 'task_start',
+          taskId: task.id,
+          worker: task.worker,
+          title: task.title,
+          brief: task.brief,
+        });
+
+        const taskStart = Date.now();
+        try {
+          const output = await this.executeWorkerTask(
+            task,
+            plan.goal,
+            completedOutputs,
+            signal,
+            onProgress,
+          );
+          task.status = 'completed';
+          task.output = output;
+          task.durationMs = Date.now() - taskStart;
+          completedOutputs.set(task.id, output);
+
           onProgress?.({
-            type: 'task_start',
+            type: 'task_complete',
             taskId: task.id,
             worker: task.worker,
             title: task.title,
-            brief: task.brief,
+            output,
+            durationMs: task.durationMs,
           });
+        } catch (err: unknown) {
+          task.status = 'failed';
+          task.error = err instanceof Error ? err.message : String(err);
+          task.durationMs = Date.now() - taskStart;
 
-          const taskStart = Date.now();
-          try {
-            const output = await this.executeWorkerTask(
-              task,
-              plan.goal,
-              completedOutputs,
-              signal,
-              onProgress,
-            );
-            task.status = 'completed';
-            task.output = output;
-            task.durationMs = Date.now() - taskStart;
-            completedOutputs.set(task.id, output);
+          onProgress?.({
+            type: 'task_failed',
+            taskId: task.id,
+            worker: task.worker,
+            title: task.title,
+            error: task.error,
+            durationMs: task.durationMs,
+          });
+        }
+      };
 
-            onProgress?.({
-              type: 'task_complete',
-              taskId: task.id,
-              worker: task.worker,
-              title: task.title,
-              output,
-              durationMs: task.durationMs,
-            });
-          } catch (err: unknown) {
-            task.status = 'failed';
-            task.error = err instanceof Error ? err.message : String(err);
-            task.durationMs = Date.now() - taskStart;
-
-            onProgress?.({
-              type: 'task_failed',
-              taskId: task.id,
-              worker: task.worker,
-              title: task.title,
-              error: task.error,
-              durationMs: task.durationMs,
-            });
-          }
-        }),
-      );
+      const writers = runnableTasks.filter((t) => t.worker === 'coder');
+      const others = runnableTasks.filter((t) => t.worker !== 'coder');
+      await Promise.all([
+        ...others.map(runTask),
+        (async () => {
+          for (const writer of writers) await runTask(writer);
+        })(),
+      ]);
     }
 
     const totalDurationMs = Date.now() - startTime;
@@ -538,9 +559,9 @@ Rules:
     ).length;
     const isSuccess = completedCount > 0 && failedCount === 0;
 
-    // Estimate token savings:
-    // Monolithic: ~25,000 tokens schema + ~4 turns per task = ~100k tokens per task
-    // Swarm: ~400 tokens schema + ~200 brief = ~1,800 tokens per task
+    // NOTE: this is a rough, assumption-based estimate (not a measurement):
+    // it assumes ~25,000 tokens per task for a monolithic session and ~1,800
+    // for a pruned worker. Treat the number as an order of magnitude only.
     const monolithicTokens = plan.tasks.length * 25000;
     const swarmTokens = plan.tasks.length * 1800;
     const tokensSavedEstimate = Math.max(0, monolithicTokens - swarmTokens);
@@ -659,7 +680,7 @@ Rules:
     const lines: string[] = [
       `## 🌊 AFOT Swarm Execution Summary`,
       `**Goal:** ${plan.goal}`,
-      `**Duration:** ${durationSec}s | **Waves:** ${plan.waves.length} | **Estimated Tokens Saved:** ~${tokensSavedEstimate.toLocaleString()} tokens (Eco Masking)`,
+      `**Duration:** ${durationSec}s | **Waves:** ${plan.waves.length} | **Rough Token Savings (assumption-based estimate):** ~${tokensSavedEstimate.toLocaleString()} tokens`,
       '',
       `### ⚡ Parallel Tasks Executed:`,
     ];

@@ -1,0 +1,21 @@
+AFOT CLI (All For One Tech)
+Copyright 2026 All For One Tech
+
+This product is a modified version of Gemini CLI.
+
+Gemini CLI
+Copyright 2025 Google LLC
+https://github.com/google-gemini/gemini-cli
+Licensed under the Apache License, Version 2.0.
+
+Changes made by All For One Tech (non-exhaustive, see git history for details):
+  - Added an OpenAI-compatible multi-provider content generator
+    (packages/core/src/core/afot*.ts) with OpenCode, NVIDIA, OpenRouter, Groq,
+    DeepSeek, Cline and Kilo provider support.
+  - Added ~/.afot credential/config storage, a session path guard, a plugin
+    loader, a swarm orchestrator and related slash commands.
+  - Disabled Google telemetry (Clearcut / GCP exporters) and update checks.
+  - Rebranded the CLI as "AFOT CLI" (binary: afot).
+
+Third-party notices are listed in the NOTICES.txt files of the individual
+packages and in the third_party/ directory.
