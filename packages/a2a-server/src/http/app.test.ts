@@ -1439,6 +1439,73 @@ describe('E2E Tests', () => {
           .end();
       });
 
+      const executeFailingStreamTest = (
+        publishBeforeFailure: boolean,
+        done: (err?: unknown) => void,
+      ) => {
+        const executeSpy = vi.fn(async (context: CommandContext) => {
+          if (publishBeforeFailure) {
+            context.eventBus?.publish({
+              kind: 'status-update',
+              status: { state: 'working' },
+              taskId: 'test-task',
+              contextId: 'test-context',
+              final: false,
+            });
+          }
+          throw new Error('stream failed');
+        });
+
+        vi.spyOn(commandRegistry, 'get').mockReturnValue({
+          name: 'stream-failure',
+          description: 'A failing streaming command',
+          streaming: true,
+          execute: executeSpy,
+        });
+
+        request
+          .agent(app)
+          .post('/executeCommand')
+          .send({ command: 'stream-failure', args: [] })
+          .set('Content-Type', 'application/json')
+          .set('Accept', 'text/event-stream')
+          .on('response', (res) => {
+            let data = '';
+            res.on('data', (chunk: Buffer) => {
+              data += chunk.toString();
+            });
+            res.on('end', () => {
+              try {
+                const events = streamToSSEEvents(data);
+                expect(events).toHaveLength(publishBeforeFailure ? 2 : 1);
+                expect(events.at(-1)).toEqual({
+                  jsonrpc: '2.0',
+                  id: null,
+                  error: { code: -32603, message: 'stream failed' },
+                });
+                expect(res.statusCode).toBe(publishBeforeFailure ? 200 : 500);
+                expect(executeSpy).toHaveBeenCalled();
+                done();
+              } catch (error) {
+                done(error);
+              }
+            });
+          })
+          .end();
+      };
+
+      it('should return an SSE error when execution fails before the first event', (done: (
+        error?: unknown,
+      ) => void) => {
+        executeFailingStreamTest(false, done);
+      });
+
+      it('should append an SSE error when execution fails after an event', (done: (
+        error?: unknown,
+      ) => void) => {
+        executeFailingStreamTest(true, done);
+      });
+
       it('should handle non-streaming commands gracefully', async () => {
         const mockNonStreamCommand = {
           name: 'non-stream-test',

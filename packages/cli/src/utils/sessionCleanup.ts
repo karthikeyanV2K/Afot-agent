@@ -143,6 +143,9 @@ export async function cleanupExpiredSessions(
       allFiles,
       retentionConfig,
     );
+    const sessionFileNamesToDelete = new Set(
+      sessionsToDelete.map((session) => session.fileName),
+    );
 
     const processedShortIds = new Set<string>();
 
@@ -163,7 +166,8 @@ export async function cleanupExpiredSessions(
               (f) =>
                 f.startsWith(SESSION_FILE_PREFIX) &&
                 (f.endsWith(`-${shortId}.json`) ||
-                  f.endsWith(`-${shortId}.jsonl`)),
+                  f.endsWith(`-${shortId}.jsonl`)) &&
+                (sessionFileNamesToDelete.has(f) || f.includes('-subagent-')),
             );
 
           for (const file of matchingFiles) {

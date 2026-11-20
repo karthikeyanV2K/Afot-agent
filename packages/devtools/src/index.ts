@@ -328,10 +328,7 @@ export class DevTools extends EventEmitter {
       });
 
       ws.on('close', () => {
-        if (sessionId) {
-          this.sessions.delete(sessionId);
-          this.emit('session-update');
-        }
+        if (sessionId) this.removeSession(sessionId, ws);
       });
 
       ws.on('error', () => {
@@ -345,7 +342,7 @@ export class DevTools extends EventEmitter {
       this.sessions.forEach((session, sessionId) => {
         if (now - session.lastPing > 30000) {
           session.ws.close();
-          this.sessions.delete(sessionId);
+          this.removeSession(sessionId, session.ws);
         } else {
           // Send ping
           session.ws.send(JSON.stringify({ type: 'ping', timestamp: now }));
@@ -353,6 +350,13 @@ export class DevTools extends EventEmitter {
       });
     }, 10000);
     this.heartbeatTimer.unref();
+  }
+
+  private removeSession(sessionId: string, ws?: WebSocket) {
+    const session = this.sessions.get(sessionId);
+    if (!session || (ws && session.ws !== ws)) return;
+    this.sessions.delete(sessionId);
+    this.emit('session-update');
   }
 
   private handleWebSocketMessage(

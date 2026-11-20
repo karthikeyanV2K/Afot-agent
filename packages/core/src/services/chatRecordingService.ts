@@ -237,6 +237,36 @@ export function isResumableMessageRecord(message: MessageRecord): boolean {
   return false;
 }
 
+type MessageKind = {
+  isUser: boolean;
+  isGemini: boolean;
+  isResumable: boolean;
+  userContent?: string;
+  hasOtherResumableContent: boolean;
+};
+
+function getMessageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part: unknown) => (isTextPart(part) ? part.text : ''))
+    .join('');
+}
+
+function getMessageKind(message: MessageRecord): MessageKind {
+  return {
+    isUser: message.type === 'user',
+    isGemini: message.type === 'gemini',
+    isResumable: isResumableMessageRecord(message),
+    userContent:
+      message.type === 'user' ? getMessageText(message.content) : undefined,
+    hasOtherResumableContent:
+      message.type === 'gemini' &&
+      ((message.toolCalls?.length ?? 0) > 0 ||
+        (message.thoughts?.length ?? 0) > 0),
+  };
+}
+
 export function hasResumableConversationContent(
   messages?: readonly MessageRecord[],
 ): boolean {
@@ -257,13 +287,9 @@ function createJsonlRecordAccumulator(options?: LoadConversationOptions) {
   let metadata: Partial<ConversationRecord> = {};
   const messagesMap = new Map<string, MessageRecord>();
   const messageIds: string[] = [];
-  const messageKinds = new Map<
-    string,
-    { isUser: boolean; isResumable: boolean }
-  >();
+  const messageKinds = new Map<string, MessageKind>();
   let isTrackingMemoryScratchpadFreshness = false;
   let memoryScratchpadIsStale = false;
-  let firstUserMessageStr: string | undefined;
 
   const applySinglePatch = (patch: MessagePatch) => {
     if (options?.metadataOnly) {
@@ -271,10 +297,13 @@ function createJsonlRecordAccumulator(options?: LoadConversationOptions) {
         const kind = messageKinds.get(patch.id);
         if (kind) {
           const contentStr = partListUnionToString(patch.content).trim();
+          kind.isResumable = kind.isUser
+            ? !isIgnoredUserContent(contentStr)
+            : kind.isGemini
+              ? contentStr.length > 0 || kind.hasOtherResumableContent
+              : false;
           if (kind.isUser) {
-            kind.isResumable = !isIgnoredUserContent(contentStr);
-          } else if (contentStr.length > 0) {
-            kind.isResumable = true;
+            kind.userContent = getMessageText(patch.content);
           }
         }
       }
@@ -419,29 +448,11 @@ function createJsonlRecordAccumulator(options?: LoadConversationOptions) {
           memoryScratchpadIsStale = true;
         }
         const id = record.id;
-        const isUser = hasProperty(record, 'type') && record.type === 'user';
-        const isResumable = isResumableMessageRecord(record);
         if (options?.metadataOnly) {
           if (!messageKinds.has(id)) {
             messageIds.push(id);
           }
-          messageKinds.set(id, { isUser, isResumable });
-        }
-        if (
-          !firstUserMessageStr &&
-          isUser &&
-          hasProperty(record, 'content') &&
-          record['content'] &&
-          isResumable
-        ) {
-          const rawContent = record['content'];
-          if (Array.isArray(rawContent)) {
-            firstUserMessageStr = rawContent
-              .map((p: unknown) => (isTextPart(p) ? p['text'] : ''))
-              .join('');
-          } else if (typeof rawContent === 'string') {
-            firstUserMessageStr = rawContent;
-          }
+          messageKinds.set(id, getMessageKind(record));
         }
 
         if (!options?.metadataOnly) {
@@ -470,33 +481,12 @@ function createJsonlRecordAccumulator(options?: LoadConversationOptions) {
           for (const msg of record.$set.messages) {
             if (isMessageRecord(msg)) {
               const id = msg.id;
-              const isUser = msg.type === 'user';
-              const isResumable = isResumableMessageRecord(msg);
 
               if (options?.metadataOnly) {
                 messageIds.push(id);
-                messageKinds.set(id, {
-                  isUser,
-                  isResumable,
-                });
+                messageKinds.set(id, getMessageKind(msg));
               } else {
                 messagesMap.set(id, msg);
-              }
-
-              if (
-                !firstUserMessageStr &&
-                isUser &&
-                isResumable &&
-                msg.content &&
-                (Array.isArray(msg.content) || typeof msg.content === 'string')
-              ) {
-                if (Array.isArray(msg.content)) {
-                  firstUserMessageStr = msg.content
-                    .map((p: unknown) => (isTextPart(p) ? p.text : ''))
-                    .join('');
-                } else {
-                  firstUserMessageStr = msg.content;
-                }
               }
             }
           }
@@ -511,33 +501,12 @@ function createJsonlRecordAccumulator(options?: LoadConversationOptions) {
           for (const msg of record.messages) {
             if (isMessageRecord(msg)) {
               const id = msg.id;
-              const isUser = msg.type === 'user';
-              const isResumable = isResumableMessageRecord(msg);
 
               if (options?.metadataOnly) {
                 messageIds.push(id);
-                messageKinds.set(id, {
-                  isUser,
-                  isResumable,
-                });
+                messageKinds.set(id, getMessageKind(msg));
               } else {
                 messagesMap.set(id, msg);
-              }
-
-              if (
-                !firstUserMessageStr &&
-                isUser &&
-                isResumable &&
-                msg.content &&
-                (Array.isArray(msg.content) || typeof msg.content === 'string')
-              ) {
-                if (Array.isArray(msg.content)) {
-                  firstUserMessageStr = msg.content
-                    .map((p: unknown) => (isTextPart(p) ? p.text : ''))
-                    .join('');
-                } else {
-                  firstUserMessageStr = msg.content;
-                }
               }
             }
           }
@@ -559,17 +528,16 @@ function createJsonlRecordAccumulator(options?: LoadConversationOptions) {
         (message) =>
           message.type === 'user' && isResumableMessageRecord(message),
       ) ?? null;
-    let fallbackFirstUserMessage = firstUserMessageStr;
-    if (!fallbackFirstUserMessage && metadataFirstUserMessage) {
-      const rawContent = metadataFirstUserMessage.content;
-      if (Array.isArray(rawContent)) {
-        fallbackFirstUserMessage = rawContent
-          .map((part: unknown) => (isTextPart(part) ? part['text'] : ''))
-          .join('');
-      } else if (typeof rawContent === 'string') {
-        fallbackFirstUserMessage = rawContent;
-      }
-    }
+    const metadataOnlyFirstUserMessage = options?.metadataOnly
+      ? messageIds
+          .map((id) => messageKinds.get(id))
+          .find((kind) => kind?.isUser && kind.isResumable)
+      : undefined;
+    const fallbackFirstUserMessage = options?.metadataOnly
+      ? metadataOnlyFirstUserMessage?.userContent
+      : metadataFirstUserMessage
+        ? getMessageText(metadataFirstUserMessage.content)
+        : undefined;
     const userMessageCount = options?.metadataOnly
       ? Array.from(messageKinds.values()).filter((m) => m.isUser).length
       : loadedMessages.filter((m) => m.type === 'user').length;

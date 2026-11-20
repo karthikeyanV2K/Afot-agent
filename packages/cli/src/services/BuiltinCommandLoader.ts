@@ -72,6 +72,7 @@ import { voiceCommand } from '../ui/commands/voiceCommand.js';
 import { swarmCommand } from '../ui/commands/swarmCommand.js';
 import { approvalCommand } from '../ui/commands/approvalCommand.js';
 import { subagentsCommand } from '../ui/commands/subagentsCommand.js';
+import { securityReportCommand } from '../ui/commands/securityReportCommand.js';
 
 /**
  * Loads the core, hard-coded slash commands that are an integral part
@@ -243,6 +244,7 @@ export class BuiltinCommandLoader implements ICommandLoader {
       vimCommand,
       swarmCommand,
       approvalCommand,
+      securityReportCommand,
       subagentsCommand,
       setupGithubCommand,
       terminalSetupCommand,

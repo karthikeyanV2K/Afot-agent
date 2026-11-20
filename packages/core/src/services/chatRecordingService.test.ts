@@ -2298,6 +2298,88 @@ describe('ChatRecordingService', () => {
       expect(metaLoaded!.hasResumableContent).toBe(true);
     });
 
+    it('should derive first user message from current content after patches', async () => {
+      const chatsDir = path.join(testTempDir, 'chats');
+      fs.mkdirSync(chatsDir, { recursive: true });
+      const sessionFile = path.join(chatsDir, 'patched-user.jsonl');
+      const lines = [
+        {
+          sessionId: 'patched-user-session',
+          projectHash: 'test-project-hash',
+          startTime: '2026-01-01T00:00:00.000Z',
+          lastUpdated: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'm1',
+          type: 'user',
+          timestamp: '2026-01-01T00:01:00.000Z',
+          content: 'Original prompt',
+        },
+        {
+          id: 'm2',
+          type: 'user',
+          timestamp: '2026-01-01T00:02:00.000Z',
+          content: 'Second prompt',
+        },
+        {
+          $patch: {
+            id: 'm1',
+            content: 'Updated prompt',
+          },
+        },
+      ];
+      fs.writeFileSync(
+        sessionFile,
+        lines.map((line) => JSON.stringify(line)).join('\n') + '\n',
+      );
+
+      const fullLoaded = await loadConversationRecord(sessionFile);
+      const metaLoaded = await loadConversationRecord(sessionFile, {
+        metadataOnly: true,
+      });
+
+      expect(fullLoaded?.firstUserMessage).toBe('Updated prompt');
+      expect(metaLoaded?.firstUserMessage).toBe('Updated prompt');
+    });
+
+    it('should clear resumability after a text-only assistant message is patched empty', async () => {
+      const chatsDir = path.join(testTempDir, 'chats');
+      fs.mkdirSync(chatsDir, { recursive: true });
+      const sessionFile = path.join(chatsDir, 'empty-assistant.jsonl');
+      const lines = [
+        {
+          sessionId: 'empty-assistant-session',
+          projectHash: 'test-project-hash',
+          startTime: '2026-01-01T00:00:00.000Z',
+          lastUpdated: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'm1',
+          type: 'gemini',
+          timestamp: '2026-01-01T00:01:00.000Z',
+          content: 'Response',
+        },
+        {
+          $patch: {
+            id: 'm1',
+            content: '',
+          },
+        },
+      ];
+      fs.writeFileSync(
+        sessionFile,
+        lines.map((line) => JSON.stringify(line)).join('\n') + '\n',
+      );
+
+      const fullLoaded = await loadConversationRecord(sessionFile);
+      const metaLoaded = await loadConversationRecord(sessionFile, {
+        metadataOnly: true,
+      });
+
+      expect(fullLoaded?.hasResumableContent).toBe(false);
+      expect(metaLoaded?.hasResumableContent).toBe(false);
+    });
+
     it('should reload previously evicted messages into the active trailing window when turns are removed in updateMessagesFromHistory', async () => {
       await chatRecordingService.initialize();
 

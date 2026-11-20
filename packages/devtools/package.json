@@ -13,7 +13,9 @@
   },
   "scripts": {
     "build": "npm run build:client && tsc -p tsconfig.build.json",
-    "build:client": "node esbuild.client.js"
+    "build:client": "node esbuild.client.js",
+    "test": "vitest run",
+    "test:ci": "vitest run"
   },
   "files": [
     "dist",

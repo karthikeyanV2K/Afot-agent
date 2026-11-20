@@ -134,6 +134,7 @@ async function handleExecuteCommand(
   logger.info('[CoreAgent] Received /executeCommand request: ', req.body);
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const { command, args } = req.body ?? {};
+  let isStreamingCommand = false;
   try {
     if (typeof command !== 'string') {
       return res.status(400).json({ error: 'Invalid "command" field.' });
@@ -158,6 +159,7 @@ async function handleExecuteCommand(
     }
 
     if (commandToExecute.streaming) {
+      isStreamingCommand = true;
       const eventBus = new DefaultExecutionEventBus();
       res.setHeader('Content-Type', 'text/event-stream');
       const eventHandler = (event: AgentExecutionEvent) => {
@@ -167,15 +169,17 @@ async function handleExecuteCommand(
           id: 'taskId' in event ? event.taskId : (event as Message).messageId,
           result: event,
         };
-        res.write(`data: ${JSON.stringify(jsonRpcResponse)}\n`);
+        res.write(`data: ${JSON.stringify(jsonRpcResponse)}\n\n`);
       };
       eventBus.on('event', eventHandler);
 
-      await commandToExecute.execute({ ...context, eventBus }, args ?? []);
-
-      eventBus.off('event', eventHandler);
-      eventBus.finished();
-      return res.end(); // Explicit return for streaming path
+      try {
+        await commandToExecute.execute({ ...context, eventBus }, args ?? []);
+        return res.end();
+      } finally {
+        eventBus.off('event', eventHandler);
+        eventBus.finished();
+      }
     } else {
       const result = await commandToExecute.execute(context, args ?? []);
       logger.info('[CoreAgent] Sending /executeCommand response: ', result);
@@ -190,6 +194,17 @@ async function handleExecuteCommand(
     );
     const errorMessage =
       e instanceof Error ? e.message : 'Unknown error executing command';
+    if (isStreamingCommand) {
+      if (!res.headersSent) res.status(500);
+      res.write(
+        `data: ${JSON.stringify({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32603, message: errorMessage },
+        })}\n\n`,
+      );
+      return res.end();
+    }
     return res.status(500).json({ error: errorMessage });
   }
 }

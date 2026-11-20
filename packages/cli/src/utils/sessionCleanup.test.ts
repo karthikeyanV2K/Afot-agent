@@ -489,6 +489,35 @@ describe('Session Cleanup (Refactored)', () => {
       );
     });
 
+    it('should retain a recent session that collides with an expired session shortId', async () => {
+      const now = new Date();
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+      const expiredFile = 'session-20250110-abc12345.json';
+      const recentFile = 'session-20250120-abc12345.json';
+      await writeSessionFile({
+        id: 'expired-session-id',
+        fileName: expiredFile,
+        lastUpdated: twoWeeksAgo.toISOString(),
+      });
+      await writeSessionFile({
+        id: 'recent-session-id',
+        fileName: recentFile,
+        lastUpdated: now.toISOString(),
+      });
+
+      const config = createMockConfig();
+      const settings: Settings = {
+        general: { sessionRetention: { enabled: true, maxAge: '10d' } },
+      };
+
+      const result = await cleanupExpiredSessions(config, settings);
+
+      expect(result.deleted).toBe(1);
+      expect(existsSync(path.join(chatsDir, expiredFile))).toBe(false);
+      expect(existsSync(path.join(chatsDir, recentFile))).toBe(true);
+    });
+
     it('should delete corrupted session files', async () => {
       // Write a corrupted file (invalid JSON)
       const corruptPath = path.join(chatsDir, 'session-corrupt.json');

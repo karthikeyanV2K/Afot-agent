@@ -199,6 +199,14 @@ describe('BuiltinCommandLoader', () => {
     expect(upgradeCmd).toBeDefined();
   });
 
+  it('should include the passive security report command', async () => {
+    const loader = new BuiltinCommandLoader(mockConfig);
+    const commands = await loader.loadCommands(new AbortController().signal);
+    expect(commands.some((command) => command.name === 'security-report')).toBe(
+      true,
+    );
+  });
+
   it('should exclude upgrade command when authType is NOT login_with_google', async () => {
     (mockConfig.getContentGeneratorConfig as Mock).mockReturnValue({
       authType: 'other',

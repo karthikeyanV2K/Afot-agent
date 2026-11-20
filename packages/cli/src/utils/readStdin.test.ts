@@ -91,38 +91,37 @@ describe('readStdin', () => {
     await expect(promise).resolves.toBe('');
   });
 
-  // Emulate terminals where stdin is not TTY (eg: git bash)
-  it('should timeout and resolve with empty string when no input is available', async () => {
-    vi.useFakeTimers();
+  it('should wait for stdin to end when no input is available', async () => {
+    mockStdin.read.mockReturnValue(null);
+    let resolved = false;
+    const promise = readStdin().then((result) => {
+      resolved = true;
+      return result;
+    });
 
-    const promise = readStdin();
+    await Promise.resolve();
+    expect(resolved).toBe(false);
 
-    // Fast-forward past the timeout (to run test faster)
-    vi.advanceTimersByTime(500);
-
+    onEndHandler();
     await expect(promise).resolves.toBe('');
-
-    vi.useRealTimers();
   });
 
-  it('should clear timeout once when data is received and resolve with data', async () => {
-    const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
-    mockStdin.read
-      .mockReturnValueOnce('chunk1')
-      .mockReturnValueOnce('chunk2')
-      .mockReturnValueOnce(null);
+  it('should preserve data that arrives after a delay', async () => {
+    vi.useFakeTimers();
+    try {
+      mockStdin.read
+        .mockReturnValueOnce('late input')
+        .mockReturnValueOnce(null);
+      const promise = readStdin();
 
-    const promise = readStdin();
+      await vi.advanceTimersByTimeAsync(600);
+      onReadableHandler();
+      onEndHandler();
 
-    // Trigger readable event
-    onReadableHandler();
-
-    expect(clearTimeoutSpy).toHaveBeenCalledOnce();
-
-    // Trigger end to resolve
-    onEndHandler();
-
-    await expect(promise).resolves.toBe('chunk1chunk2');
+      await expect(promise).resolves.toBe('late input');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('should truncate input if it exceeds MAX_STDIN_SIZE', async () => {

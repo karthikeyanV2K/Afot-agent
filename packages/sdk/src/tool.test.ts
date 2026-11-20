@@ -68,6 +68,30 @@ describe('SdkTool Execution', () => {
     expect(result.error).toBeUndefined();
   });
 
+  it('returns a defined result when the action returns undefined', async () => {
+    const definition = tool(
+      {
+        name: 'undefinedTool',
+        description: 'Returns no value',
+        inputSchema: z.object({}),
+      },
+      async () => undefined,
+    );
+
+    const sdkTool = new SdkTool(definition, mockMessageBus);
+    const invocation = sdkTool.createInvocationWithContext(
+      {},
+      mockMessageBus,
+      undefined,
+    );
+    const result = await invocation.execute({
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(result.llmContent).toBe('undefined');
+    expect(result.returnDisplay).toBe('undefined');
+  });
+
   it('throws standard Error by default', async () => {
     const definition = tool(
       {

@@ -113,7 +113,9 @@ class SdkToolInvocation<T extends z.ZodTypeAny> extends BaseToolInvocation<
     try {
       const result = await this.action(this.params, this.context);
       const output =
-        typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        typeof result === 'string'
+          ? result
+          : (JSON.stringify(result, null, 2) ?? String(result));
       return {
         llmContent: output,
         returnDisplay: output,

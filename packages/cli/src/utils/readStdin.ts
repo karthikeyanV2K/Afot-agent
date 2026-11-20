@@ -30,23 +30,10 @@ export async function readStdin(): Promise<string> {
     let totalSize = 0;
     process.stdin.setEncoding('utf8');
 
-    const pipedInputShouldBeAvailableInMs = 500;
-    let pipedInputTimerId: null | NodeJS.Timeout = setTimeout(() => {
-      // stop reading if input is not available yet, this is needed
-      // in terminals where stdin is never TTY and nothing's piped
-      // which causes the program to get stuck expecting data from stdin
-      onEnd();
-    }, pipedInputShouldBeAvailableInMs);
-
     const onReadable = () => {
       let chunk;
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       while ((chunk = process.stdin.read()) !== null) {
-        if (pipedInputTimerId) {
-          clearTimeout(pipedInputTimerId);
-          pipedInputTimerId = null;
-        }
-
         const chunkByteLength = Buffer.byteLength(chunk, 'utf8');
         if (totalSize + chunkByteLength > MAX_STDIN_SIZE) {
           const remainingBytes = MAX_STDIN_SIZE - totalSize;
@@ -74,10 +61,6 @@ export async function readStdin(): Promise<string> {
     };
 
     const cleanup = () => {
-      if (pipedInputTimerId) {
-        clearTimeout(pipedInputTimerId);
-        pipedInputTimerId = null;
-      }
       process.stdin.removeListener('readable', onReadable);
       process.stdin.removeListener('end', onEnd);
       process.stdin.removeListener('error', onError);
