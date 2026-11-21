@@ -2413,7 +2413,7 @@ export const AppContainer = (props: AppContainerProps) => {
 
     const paddedTitle = computeTerminalTitle({
       streamingState,
-      thoughtSubject: thought?.subject,
+      thoughtSubject: thought?.subject || thought?.description,
       isConfirming:
         !!commandConfirmationRequest || shouldShowActionRequiredTitle,
       isSilentWorking: shouldShowSilentWorkingTitle,
@@ -2547,7 +2547,8 @@ export const AppContainer = (props: AppContainerProps) => {
       .join(', ');
     estimatedStatusLength = hookLabel.length + hookNames.length + 10;
   } else if (showLoadingIndicator) {
-    const thoughtText = thought?.subject || 'Waiting for model...';
+    const thoughtText =
+      thought?.subject || thought?.description || 'Waiting for model...';
     estimatedStatusLength = thoughtText.length + 25;
   } else if (hasPendingActionRequired) {
     estimatedStatusLength = 35;

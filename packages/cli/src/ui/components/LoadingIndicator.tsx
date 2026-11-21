@@ -65,12 +65,15 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = React.memo(
 
     // Prioritize active operational status (e.g. retries) or interactive shell waiting
     // over thought subject, while keeping cosmetic tips/witty phrases subordinate to thoughts.
+    const thoughtText =
+      thought?.subject ||
+      (thought?.description ? thought.description.trim() : undefined);
     const primaryText =
       statusPhrase ??
       (currentLoadingPhrase === INTERACTIVE_SHELL_WAITING_PHRASE
         ? currentLoadingPhrase
-        : thought?.subject
-          ? (thoughtLabel ?? thought.subject)
+        : thoughtText
+          ? (thoughtLabel ?? thoughtText)
           : currentLoadingPhrase ||
             (streamingState === StreamingState.Responding
               ? 'Thinking...'

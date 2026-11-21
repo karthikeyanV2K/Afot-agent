@@ -1060,11 +1060,13 @@ export class LocalAgentExecutor<TOutput extends z.ZodTypeAny> {
         const parts = chunk.candidates?.[0]?.content?.parts;
 
         // Extract and emit any subject "thought" content from the model.
-        const { subject } = parseThought(
+        const parsedThought = parseThought(
           parts?.find((p) => p.thought)?.text || '',
         );
-        if (subject) {
-          this.emitActivity('THOUGHT_CHUNK', { text: subject });
+        const thoughtSubject =
+          parsedThought.subject || parsedThought.description;
+        if (thoughtSubject) {
+          this.emitActivity('THOUGHT_CHUNK', { text: thoughtSubject });
         }
 
         // Collect any function calls requested by the model.

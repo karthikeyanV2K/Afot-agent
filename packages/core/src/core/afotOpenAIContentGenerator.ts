@@ -1682,12 +1682,27 @@ Directives:
           const reasoningDelta = extractReasoning(delta);
           if (reasoningDelta && !textDelta) {
             accumulatedReasoning += reasoningDelta;
+            const lines = accumulatedReasoning
+              .split('\n')
+              .map((l) => l.trim().replace(/^[#*->\s]+/, ''))
+              .filter((l) => l.length > 2);
+            const activeLine = lines[lines.length - 1] || 'Thinking...';
+            const activePreview =
+              activeLine.length > 80
+                ? activeLine.slice(0, 77) + '...'
+                : activeLine;
+
             yield self.createGeminiResponse({
               candidates: [
                 {
                   content: {
                     role: 'model',
-                    parts: [{ text: reasoningDelta, thought: true }],
+                    parts: [
+                      {
+                        text: `**${activePreview}** ${accumulatedReasoning}`,
+                        thought: true,
+                      },
+                    ],
                   },
                   index: 0,
                 },
