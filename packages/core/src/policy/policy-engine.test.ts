@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import { PolicyEngine } from './policy-engine.js';
 import {
   PolicyDecision,
@@ -4566,6 +4566,78 @@ describe('PolicyEngine', () => {
         undefined,
       );
       expect(buildCheck.decision).toBe(PolicyDecision.DENY);
+    });
+  });
+
+  describe('AFOT Permissions Integration', () => {
+    afterEach(async () => {
+      const { resetAfotRuntimePermissions } = await import(
+        '../core/afotAuthStorage.js'
+      );
+      resetAfotRuntimePermissions();
+    });
+
+    it('should auto-approve shell execution including compound commands when autoApproveShell is enabled', async () => {
+      const { setAfotRuntimePermissions } = await import(
+        '../core/afotAuthStorage.js'
+      );
+      setAfotRuntimePermissions({ autoApproveShell: true });
+
+      const engine = new PolicyEngine({
+        approvalMode: ApprovalMode.DEFAULT,
+      });
+
+      const result = await engine.check(
+        {
+          name: 'run_shell_command',
+          args: { command: 'cd X:\\Ai\\Temp\\deltakeep; Start-Sleep 1' },
+        },
+        undefined,
+      );
+      expect(result.decision).toBe(PolicyDecision.ALLOW);
+
+      // ask_user tool must still require user interaction
+      const askResult = await engine.check(
+        { name: 'ask_user', args: { question: 'Proceed?' } },
+        undefined,
+      );
+      expect(askResult.decision).toBe(PolicyDecision.ASK_USER);
+    });
+
+    it('should auto-approve tools but preserve ask_user when autoApprove is enabled', async () => {
+      const { setAfotRuntimePermissions } = await import(
+        '../core/afotAuthStorage.js'
+      );
+      setAfotRuntimePermissions({ autoApprove: true });
+
+      const engine = new PolicyEngine({
+        approvalMode: ApprovalMode.DEFAULT,
+      });
+
+      const shellResult = await engine.check(
+        {
+          name: 'run_shell_command',
+          args: { command: 'npm test' },
+        },
+        undefined,
+      );
+      expect(shellResult.decision).toBe(PolicyDecision.ALLOW);
+
+      const writeResult = await engine.check(
+        {
+          name: 'write_file',
+          args: { file_path: 'src/file.ts', content: 'test' },
+        },
+        undefined,
+      );
+      expect(writeResult.decision).toBe(PolicyDecision.ALLOW);
+
+      // ask_user must still return ASK_USER
+      const askResult = await engine.check(
+        { name: 'ask_user', args: { question: 'Confirm?' } },
+        undefined,
+      );
+      expect(askResult.decision).toBe(PolicyDecision.ASK_USER);
     });
   });
 });

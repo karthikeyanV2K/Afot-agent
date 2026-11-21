@@ -16,6 +16,15 @@ import {
   isAfotEmbeddedToolParsingEnabled,
   isAfotPluginsEnabled,
   readAfotAuthFile,
+  isAfotAutoApproveEnabled,
+  isAfotAutoApproveShellEnabled,
+  isAfotAllowAllPathsEnabled,
+  isAfotAutoApproveWorkspaceWritesEnabled,
+  getAfotAllowedPaths,
+  getAfotApprovalMode,
+  setAfotApprovalMode,
+  setAfotPermissions,
+  readAfotConfig,
 } from './afotAuthStorage.js';
 
 vi.mock('../utils/debugLogger.js', () => ({
@@ -32,6 +41,11 @@ describe('afotAuthStorage hardening', () => {
     vi.stubEnv('AFOT_PLUGINS', '');
     vi.stubEnv('AFOT_EMBEDDED_TOOL_CALLS', '');
     vi.stubEnv('AFOT_ECO_MODE', '');
+    vi.stubEnv('AFOT_PATH_GUARD', '');
+    vi.stubEnv('AFOT_AUTO_APPROVE', '');
+    vi.stubEnv('AFOT_ALLOW_ALL_PATHS', '');
+    vi.stubEnv('AFOT_AUTO_APPROVE_SHELL', '');
+    vi.stubEnv('AFOT_APPROVAL_MODE', '');
   });
 
   afterEach(() => {
@@ -43,7 +57,9 @@ describe('afotAuthStorage hardening', () => {
       const target = path.join(home, 'x.json');
       atomicWriteFile(target, '{"a":1}');
       expect(fs.readFileSync(target, 'utf8')).toBe('{"a":1}');
-      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      }
       expect(fs.readdirSync(home).filter((f) => f.endsWith('.tmp'))).toEqual(
         [],
       );
@@ -54,7 +70,9 @@ describe('afotAuthStorage hardening', () => {
       fs.writeFileSync(target, '{}', { mode: 0o640 });
       fs.chmodSync(target, 0o640);
       atomicWriteFile(target, '{"b":2}');
-      expect(fs.statSync(target).mode & 0o777).toBe(0o640);
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(target).mode & 0o777).toBe(0o640);
+      }
     });
 
     it('tightens a file that was created with looser permissions', () => {
@@ -62,7 +80,9 @@ describe('afotAuthStorage hardening', () => {
       fs.writeFileSync(target, '{}', { mode: 0o666 });
       fs.chmodSync(target, 0o666);
       atomicWriteFile(target, '{}', 0o600);
-      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      }
     });
   });
 
@@ -126,6 +146,64 @@ describe('afotAuthStorage hardening', () => {
       expect(isAfotFailoverEnabled({ failover: true })).toBe(false);
       vi.stubEnv('AFOT_PLUGINS', '1');
       expect(isAfotPluginsEnabled(null)).toBe(true);
+    });
+  });
+
+  describe('permissions and auto-approval', () => {
+    it('defaults auto-approval flags to false when nothing configured', () => {
+      expect(isAfotAutoApproveEnabled(null)).toBe(false);
+      expect(isAfotAutoApproveShellEnabled(null)).toBe(false);
+      expect(isAfotAllowAllPathsEnabled(null)).toBe(false);
+      expect(isAfotAutoApproveWorkspaceWritesEnabled(null)).toBe(false);
+      expect(getAfotAllowedPaths(null)).toEqual([]);
+      expect(getAfotApprovalMode(null)).toBeUndefined();
+    });
+
+    it('enables auto-approval via environment variables', () => {
+      vi.stubEnv('AFOT_AUTO_APPROVE', '1');
+      expect(isAfotAutoApproveEnabled(null)).toBe(true);
+      expect(isAfotAutoApproveShellEnabled(null)).toBe(true);
+      expect(isAfotAllowAllPathsEnabled(null)).toBe(true);
+      expect(isAfotAutoApproveWorkspaceWritesEnabled(null)).toBe(true);
+      expect(getAfotApprovalMode(null)).toBe('yolo');
+    });
+
+    it('enables shell auto-approval via AFOT_AUTO_APPROVE_SHELL', () => {
+      vi.stubEnv('AFOT_AUTO_APPROVE', '0');
+      vi.stubEnv('AFOT_AUTO_APPROVE_SHELL', '1');
+      expect(isAfotAutoApproveShellEnabled(null)).toBe(true);
+      expect(isAfotAutoApproveEnabled(null)).toBe(false);
+    });
+
+    it('enables allowAllPaths via AFOT_ALLOW_ALL_PATHS or AFOT_PATH_GUARD=off', () => {
+      vi.stubEnv('AFOT_ALLOW_ALL_PATHS', '1');
+      expect(isAfotAllowAllPathsEnabled(null)).toBe(true);
+
+      vi.stubEnv('AFOT_ALLOW_ALL_PATHS', '');
+      vi.stubEnv('AFOT_PATH_GUARD', 'off');
+      expect(isAfotAllowAllPathsEnabled(null)).toBe(true);
+    });
+
+    it('persists and reloads approvalMode and permissions to config.json', () => {
+      setAfotApprovalMode('yolo');
+      setAfotPermissions({
+        autoApprove: true,
+        autoApproveShell: true,
+        allowAllPaths: true,
+        allowedPaths: ['X:\\ExtraDir'],
+      });
+
+      const config = readAfotConfig();
+      expect(config?.approvalMode).toBe('yolo');
+      expect(config?.autoApprove).toBe(true);
+      expect(config?.autoApproveShell).toBe(true);
+      expect(config?.allowAllPaths).toBe(true);
+      expect(config?.allowedPaths).toEqual(['X:\\ExtraDir']);
+
+      expect(isAfotAutoApproveEnabled(config)).toBe(true);
+      expect(isAfotAutoApproveShellEnabled(config)).toBe(true);
+      expect(isAfotAllowAllPathsEnabled(config)).toBe(true);
+      expect(getAfotAllowedPaths(config)).toContain('X:\\ExtraDir');
     });
   });
 });

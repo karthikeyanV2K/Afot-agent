@@ -70,6 +70,14 @@ import {
   isNetworkReliantCommand,
 } from '../sandbox/utils/proactivePermissions.js';
 import { wrapUntrusted } from '../utils/textUtils.js';
+import {
+  isPathAllowed,
+  isPathGuardDisabled,
+} from '../core/afotPathGuard.js';
+import {
+  isAfotAutoApproveShellEnabled,
+  isAfotAutoApproveEnabled,
+} from '../core/afotAuthStorage.js';
 
 export const OUTPUT_UPDATE_INTERVAL_MS = 1000;
 export const LIVE_OUTPUT_MAX_BUFFER_CHARS = 100_000;
@@ -366,7 +374,9 @@ export class ShellToolInvocation extends BaseToolInvocation<
     }
 
     if (
-      this.context.config.getApprovalMode() === ApprovalMode.YOLO &&
+      (this.context.config.getApprovalMode() === ApprovalMode.YOLO ||
+        isAfotAutoApproveShellEnabled() ||
+        isAfotAutoApproveEnabled()) &&
       forcedDecision !== 'ask_user'
     ) {
       return super.shouldConfirmExecute(abortSignal, forcedDecision);
@@ -623,7 +633,11 @@ export class ShellToolInvocation extends BaseToolInvocation<
       return checkResult.decision === PolicyDecision.ALLOW;
     }
 
-    return this.context.config?.getApprovalMode?.() === ApprovalMode.YOLO;
+    return (
+      this.context.config?.getApprovalMode?.() === ApprovalMode.YOLO ||
+      isAfotAutoApproveShellEnabled() ||
+      isAfotAutoApproveEnabled()
+    );
   }
 
   async execute(options: ExecuteOptions): Promise<ToolResult> {
@@ -636,7 +650,32 @@ export class ShellToolInvocation extends BaseToolInvocation<
     const strippedCommand = stripShellWrapper(this.params.command);
 
     // AFOT path guard — check the shell's working directory
-    await this.checkPathPermission(process.cwd(), 'execute', signal);
+    const targetCwd = this.params.dir_path
+      ? path.resolve(this.context.config.getTargetDir(), this.params.dir_path)
+      : this.context.config.getTargetDir();
+    const targetDir = this.context.config.getTargetDir();
+    let isWithinWorkspace = false;
+    try {
+      isWithinWorkspace = isSubpath(
+        resolveToRealPath(targetDir),
+        resolveToRealPath(targetCwd),
+      );
+    } catch {
+      isWithinWorkspace = isSubpath(
+        path.resolve(targetDir),
+        path.resolve(targetCwd),
+      );
+    }
+    if (
+      !isWithinWorkspace &&
+      !isPathAllowed(targetCwd) &&
+      !isPathGuardDisabled() &&
+      !isAfotAutoApproveShellEnabled() &&
+      !isAfotAutoApproveEnabled() &&
+      this.context.config.getApprovalMode() !== ApprovalMode.YOLO
+    ) {
+      await this.checkPathPermission(targetCwd, 'execute', signal);
+    }
 
     if (
       detectCommandSubstitution(strippedCommand) &&
@@ -706,6 +745,10 @@ export class ShellToolInvocation extends BaseToolInvocation<
       let hasPendingOutput = false;
       let isBinaryStream = false;
 
+      const allowBackground =
+        process.env['NODE_ENV'] === 'test' ||
+        process.env['AFOT_ALLOW_BACKGROUND'] === 'true';
+
       const appendToLiveOutputBuffer = (chunk: string) => {
         const currentOutput =
           typeof cumulativeOutput === 'string' ? cumulativeOutput : '';
@@ -727,8 +770,11 @@ export class ShellToolInvocation extends BaseToolInvocation<
 
       const flushOutput = () => {
         cancelTrailingFlush();
-        // AFOT: Never suppress output for background commands; stream live output to TUI
-        if (!hasPendingOutput || !updateOutput) {
+        if (
+          !hasPendingOutput ||
+          !updateOutput ||
+          (allowBackground && this.params.is_background)
+        ) {
           return;
         }
 
@@ -741,7 +787,8 @@ export class ShellToolInvocation extends BaseToolInvocation<
       const scheduleTrailingFlush = () => {
         if (
           trailingFlushTimer !== null ||
-          !updateOutput
+          !updateOutput ||
+          (allowBackground && this.params.is_background)
         ) {
           return;
         }
@@ -873,9 +920,6 @@ export class ShellToolInvocation extends BaseToolInvocation<
 
         let completed = false;
         // AFOT: Never move commands to the background. Always stream full output in the foreground TUI session.
-        const allowBackground =
-          process.env['NODE_ENV'] === 'test' &&
-          process.env['AFOT_ALLOW_BACKGROUND_TESTS'] === 'true';
         if (allowBackground && this.params.is_background) {
           const sessionId = this.context.config?.getSessionId?.() ?? 'default';
           const delay = this.params.delay_ms ?? BACKGROUND_DELAY_MS;
@@ -1009,7 +1053,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
         }
       } else if (
         (this.params.is_background || result.backgrounded) &&
-        process.env['AFOT_ALLOW_BACKGROUND_TESTS'] === 'true'
+        allowBackground
       ) {
         llmContent = `Command moved to background (PID: ${result.pid}). Output hidden. Press Ctrl+B to view.`;
         data = {
@@ -1057,7 +1101,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
       } else {
         if (
           (this.params.is_background || result.backgrounded) &&
-          process.env['AFOT_ALLOW_BACKGROUND_TESTS'] === 'true'
+          allowBackground
         ) {
           returnDisplay = `Command moved to background (PID: ${result.pid}). Output hidden. Press Ctrl+B to view.`;
         } else if (result.aborted) {

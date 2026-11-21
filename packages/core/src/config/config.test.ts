@@ -33,6 +33,7 @@ import {
 import { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { setGeminiMdFilename as mockSetGeminiMdFilename } from '../tools/memoryTool.js';
 import {
   DEFAULT_TELEMETRY_TARGET,
@@ -4654,5 +4655,81 @@ describe('hasLatestFlashLiteGAAccess model setting', () => {
     const result = config.hasLatestFlashLiteGAAccess();
     expect(result).toBe(false);
     expect(DEFAULT_GEMINI_FLASH_LITE_MODEL).toBe('gemini-3.1-flash-lite');
+  });
+
+  describe('AFOT Directory Access and Path Guard in Config', () => {
+    let tmpWorkspace: string;
+    let tmpOutside: string;
+    let tmpAfot: string;
+
+    beforeEach(() => {
+      tmpWorkspace = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'afot-config-ws-')),
+      );
+      tmpOutside = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'afot-config-out-')),
+      );
+      tmpAfot = path.join(tmpWorkspace, '.afot');
+      fs.mkdirSync(tmpAfot, { recursive: true });
+      vi.stubEnv('AFOT_HOME', tmpAfot);
+    });
+
+    afterEach(async () => {
+      const { resetAfotRuntimePermissions } = await import(
+        '../core/afotAuthStorage.js'
+      );
+      const { setAllowAllPaths } = await import('../core/afotPathGuard.js');
+      resetAfotRuntimePermissions();
+      setAllowAllPaths(false);
+      fs.rmSync(tmpWorkspace, { recursive: true, force: true });
+      fs.rmSync(tmpOutside, { recursive: true, force: true });
+    });
+
+    it('allows access to outside paths when allowAllPaths is enabled', async () => {
+      const { setAllowAllPaths } = await import('../core/afotPathGuard.js');
+      setAllowAllPaths(true);
+      const config = new Config({
+        sessionId: 'test',
+        targetDir: tmpWorkspace,
+        cwd: tmpWorkspace,
+        debugMode: false,
+        model: 'test-model',
+      });
+      const outsideFile = path.join(tmpOutside, 'test.txt');
+      expect(config.isPathAllowed(outsideFile)).toBe(true);
+      expect(config.isPathAllowed(path.join(tmpAfot, 'auth.json'))).toBe(false);
+    });
+
+    it('allows access to outside paths when in YOLO mode', async () => {
+      const config = new Config({
+        sessionId: 'test',
+        targetDir: tmpWorkspace,
+        cwd: tmpWorkspace,
+        debugMode: false,
+        model: 'test-model',
+        approvalMode: ApprovalMode.YOLO,
+      });
+      vi.spyOn(config, 'isTrustedFolder').mockReturnValue(true);
+      const outsideFile = path.join(tmpOutside, 'test.txt');
+      expect(config.isPathAllowed(outsideFile)).toBe(true);
+      expect(config.isPathAllowed(path.join(tmpAfot, 'auth.json'))).toBe(false);
+    });
+
+    it('allows access to outside paths when autoApprove is active in runtime permissions', async () => {
+      const { setAfotRuntimePermissions } = await import(
+        '../core/afotAuthStorage.js'
+      );
+      setAfotRuntimePermissions({ autoApprove: true });
+      const config = new Config({
+        sessionId: 'test',
+        targetDir: tmpWorkspace,
+        cwd: tmpWorkspace,
+        debugMode: false,
+        model: 'test-model',
+      });
+      const outsideFile = path.join(tmpOutside, 'test.txt');
+      expect(config.isPathAllowed(outsideFile)).toBe(true);
+      expect(config.isPathAllowed(path.join(tmpAfot, 'auth.json'))).toBe(false);
+    });
   });
 });

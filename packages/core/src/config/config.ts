@@ -101,6 +101,16 @@ import {
 import { shouldAttemptBrowserLaunch } from '../utils/browser.js';
 import type { MCPOAuthConfig } from '../mcp/oauth-provider.js';
 import { checkPathTrust } from '../utils/trust.js';
+import {
+  isPathAllowed as isAfotPathAllowed,
+  isAllowAllPaths,
+  isPathGuardDisabled,
+  isProtectedAfotPath,
+} from '../core/afotPathGuard.js';
+import {
+  isAfotAllowAllPathsEnabled,
+  isAfotAutoApproveEnabled,
+} from '../core/afotAuthStorage.js';
 import { WriteTodosTool } from '../tools/write-todos.js';
 import {
   StandardFileSystemService,
@@ -3331,29 +3341,40 @@ export class Config implements McpContext, AgentLoopContext {
     // main agent must NOT drop files into it directly (that would let the
     // model bypass review). Deny first, even if the path also satisfies the
     // workspace or project-temp allowlists below.
-    const inboxRoot = path.join(
-      this.storage.getProjectMemoryTempDir(),
-      '.inbox',
-    );
-    const resolvedInboxRoot = resolveToRealPath(inboxRoot);
-    const normalizedPath = path.resolve(absolutePath);
-    const normalizedInboxRoot = path.resolve(inboxRoot);
-    if (
-      resolvedPath === resolvedInboxRoot ||
-      isSubpath(resolvedInboxRoot, resolvedPath) ||
-      normalizedPath === normalizedInboxRoot ||
-      isSubpath(normalizedInboxRoot, normalizedPath)
-    ) {
+    try {
+      const inboxRoot = path.join(
+        this.storage.getProjectMemoryTempDir(),
+        '.inbox',
+      );
+      const resolvedInboxRoot = resolveToRealPath(inboxRoot);
+      const normalizedPath = path.resolve(absolutePath);
+      const normalizedInboxRoot = path.resolve(inboxRoot);
       if (
-        this.isScopedMemoryInboxPatchPathAllowed(
-          absolutePath,
-          resolvedPath,
-          inboxRoot,
-        )
+        resolvedPath === resolvedInboxRoot ||
+        isSubpath(resolvedInboxRoot, resolvedPath) ||
+        normalizedPath === normalizedInboxRoot ||
+        isSubpath(normalizedInboxRoot, normalizedPath)
       ) {
-        return true;
+        if (
+          this.isScopedMemoryInboxPatchPathAllowed(
+            absolutePath,
+            resolvedPath,
+            inboxRoot,
+          )
+        ) {
+          return true;
+        }
+        return false;
       }
-      return false;
+    } catch {
+      // Storage not initialized yet
+    }
+
+    // Protected AFOT credentials (~/.afot/auth.json, etc.) MUST NEVER be allowed
+    // just because they are inside the workspace (e.g. when workspace is $HOME).
+    // They strictly require an explicit grant via isAfotPathAllowed.
+    if (isProtectedAfotPath(resolvedPath)) {
+      return isAfotPathAllowed(resolvedPath);
     }
 
     const workspaceContext = this.getWorkspaceContext();
@@ -3361,10 +3382,28 @@ export class Config implements McpContext, AgentLoopContext {
       return true;
     }
 
-    const projectTempDir = this.storage.getProjectTempDir();
-    const resolvedTempDir = resolveToRealPath(projectTempDir);
-    if (isSubpath(resolvedTempDir, resolvedPath)) {
+    // AFOT Unrestricted Directory Access / YOLO / Path Guard allow-list
+    if (
+      this.getApprovalMode() === ApprovalMode.YOLO ||
+      isAllowAllPaths() ||
+      isPathGuardDisabled() ||
+      isAfotAllowAllPathsEnabled() ||
+      isAfotAutoApproveEnabled()
+    ) {
       return true;
+    }
+    if (isAfotPathAllowed(resolvedPath)) {
+      return true;
+    }
+
+    try {
+      const projectTempDir = this.storage.getProjectTempDir();
+      const resolvedTempDir = resolveToRealPath(projectTempDir);
+      if (isSubpath(resolvedTempDir, resolvedPath)) {
+        return true;
+      }
+    } catch {
+      // Storage not initialized yet
     }
 
     // Surgical allowlist: the global personal GEMINI.md file (and ONLY that

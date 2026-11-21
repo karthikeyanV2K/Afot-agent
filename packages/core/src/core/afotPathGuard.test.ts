@@ -34,6 +34,8 @@ describe('afotPathGuard', () => {
     fs.writeFileSync(path.join(base, 'secret.txt'), 'x');
     vi.stubEnv('AFOT_HOME', afotHome);
     vi.stubEnv('HOME', base);
+    vi.stubEnv('USERPROFILE', base);
+    vi.stubEnv('AFOT_PATH_GUARD', '');
   });
 
   afterEach(() => {
@@ -78,7 +80,9 @@ describe('afotPathGuard', () => {
     fs.mkdirSync(shared);
     g.grantPath(shared, 'always');
     const grantsFile = path.join(afotHome, 'path-grants.json');
-    expect(fs.statSync(grantsFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(grantsFile).mode & 0o777).toBe(0o600);
+    }
 
     g = await load();
     g.initPathGuard(project);
@@ -133,5 +137,66 @@ describe('afotPathGuard', () => {
     fs.mkdirSync(path.dirname(nested));
     fs.writeFileSync(nested, 'x');
     expect(g.normalizeGrantTarget(nested)).toBe(path.dirname(nested));
+  });
+
+  it('allows all paths when setAllowAllPaths(true) is called', async () => {
+    const g = await load();
+    g.initPathGuard(project);
+    expect(g.isPathAllowed(path.join(base, 'secret.txt'))).toBe(false);
+    g.setAllowAllPaths(true);
+    expect(g.isAllowAllPaths()).toBe(true);
+    expect(g.isPathGuardDisabled()).toBe(true);
+    expect(g.isPathAllowed(path.join(base, 'secret.txt'))).toBe(true);
+    // ~/.afot credentials remain protected from accidental access even when allowAllPaths is active
+    expect(g.isPathAllowed(path.join(afotHome, 'auth.json'))).toBe(false);
+  });
+
+  it('recognizes AFOT_PATH_GUARD=0, false, and disabled as disabling path guard', async () => {
+    for (const val of ['0', 'false', 'disabled', 'off']) {
+      vi.stubEnv('AFOT_PATH_GUARD', val);
+      const g = await load();
+      g.initPathGuard(project);
+      expect(g.isPathGuardDisabled()).toBe(true);
+      expect(g.isPathAllowed(path.join(base, 'secret.txt'))).toBe(true);
+    }
+  });
+
+  it('recognizes AFOT_ALLOW_ALL_PATHS=1 as allowing all paths', async () => {
+    vi.stubEnv('AFOT_ALLOW_ALL_PATHS', '1');
+    const g = await load();
+    g.initPathGuard(project);
+    expect(g.isPathGuardDisabled()).toBe(true);
+    expect(g.isPathAllowed(path.join(base, 'secret.txt'))).toBe(true);
+  });
+
+  it('loads extra paths configured via AFOT_ALLOWED_PATHS on init', async () => {
+    const extraDir = path.join(base, 'extra_dir');
+    fs.mkdirSync(extraDir);
+    vi.stubEnv('AFOT_ALLOWED_PATHS', extraDir);
+    const g = await load();
+    g.initPathGuard(project);
+    expect(g.isPathAllowed(path.join(extraDir, 'file.txt'))).toBe(true);
+  });
+
+  it('correctly identifies protected AFOT paths via isProtectedAfotPath', async () => {
+    const g = await load();
+    expect(g.isProtectedAfotPath(path.join(afotHome, 'auth.json'))).toBe(true);
+    expect(g.isProtectedAfotPath(path.join(afotHome, 'path-grants.json'))).toBe(true);
+    expect(g.isProtectedAfotPath(path.join(project, 'src', 'index.ts'))).toBe(false);
+    expect(g.isProtectedAfotPath(path.join(base, 'secret.txt'))).toBe(false);
+  });
+
+  it('allows access across paths when autoApprove is active in runtime permissions', async () => {
+    const { setAfotRuntimePermissions, resetAfotRuntimePermissions } = await import('./afotAuthStorage.js');
+    setAfotRuntimePermissions({ autoApprove: true });
+    try {
+      const g = await load();
+      g.initPathGuard(project);
+      expect(g.isPathGuardDisabled()).toBe(true);
+      expect(g.isPathAllowed(path.join(base, 'secret.txt'))).toBe(true);
+      expect(g.isPathAllowed(path.join(afotHome, 'auth.json'))).toBe(false);
+    } finally {
+      resetAfotRuntimePermissions();
+    }
   });
 });

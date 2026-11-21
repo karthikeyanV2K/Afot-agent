@@ -209,8 +209,35 @@ export interface AfotProviderConfig {
   headers?: Record<string, string>;
 }
 
+export interface AfotPermissionsConfig {
+  /** Auto-approve all subagent actions and tool executions without interactive confirmation */
+  autoApprove?: boolean;
+  /** Auto-approve shell execution commands */
+  autoApproveShell?: boolean;
+  /** Auto-approve workspace file edits and writes */
+  autoApproveWorkspaceWrites?: boolean;
+  /** Allow access to any directory outside the session root without interactive prompts */
+  allowAllPaths?: boolean;
+  /** List of additional directory paths permitted for file access and shell execution */
+  allowedPaths?: string[];
+}
+
 export interface AfotConfig {
   providers?: Record<string, AfotProviderConfig>;
+  /** Default approval mode (e.g. "yolo", "auto_edit", "plan", "default") */
+  approvalMode?: string;
+  /** Global auto-approval setting across all subagent tools and shell executions */
+  autoApprove?: boolean;
+  /** Auto-approve shell execution commands */
+  autoApproveShell?: boolean;
+  /** Auto-approve workspace file edits and writes */
+  autoApproveWorkspaceWrites?: boolean;
+  /** Allow access to any directory outside current working directory without prompts */
+  allowAllPaths?: boolean;
+  /** Specific extra allowed directory paths */
+  allowedPaths?: string[];
+  /** Structured permissions settings */
+  permissions?: AfotPermissionsConfig;
   /** Name of the provider to use by default (matches a key in auth.json) */
   defaultProvider?: string;
   /** Default model ID to use (e.g. "google/gemini-2.5-pro" for openrouter) */
@@ -1209,6 +1236,182 @@ export function setAfotProviderDefaultModel(
   debugLogger.log(
     `AFOT: Default model for provider "${providerName}" set to "${modelId}"`,
   );
+}
+
+// ─── In-memory Runtime Permissions State ───────────────────────────────────────
+
+let _runtimeAutoApprove: boolean | undefined;
+let _runtimeAutoApproveShell: boolean | undefined;
+let _runtimeAutoApproveWorkspaceWrites: boolean | undefined;
+let _runtimeAllowAllPaths: boolean | undefined;
+
+export function setAfotRuntimePermissions(
+  perms: Partial<AfotPermissionsConfig>,
+): void {
+  if (perms.autoApprove !== undefined) _runtimeAutoApprove = perms.autoApprove;
+  if (perms.autoApproveShell !== undefined)
+    _runtimeAutoApproveShell = perms.autoApproveShell;
+  if (perms.autoApproveWorkspaceWrites !== undefined)
+    _runtimeAutoApproveWorkspaceWrites = perms.autoApproveWorkspaceWrites;
+  if (perms.allowAllPaths !== undefined)
+    _runtimeAllowAllPaths = perms.allowAllPaths;
+}
+
+export function resetAfotRuntimePermissions(): void {
+  _runtimeAutoApprove = undefined;
+  _runtimeAutoApproveShell = undefined;
+  _runtimeAutoApproveWorkspaceWrites = undefined;
+  _runtimeAllowAllPaths = undefined;
+}
+
+/**
+ * Checks whether global auto-approval is enabled in environment or ~/.afot/config.json.
+ */
+export function isAfotAutoApproveEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  if (_runtimeAutoApprove !== undefined) return _runtimeAutoApprove;
+  const env = envFlag('AFOT_AUTO_APPROVE');
+  if (env !== undefined) return env;
+  const envMode = process.env['AFOT_APPROVAL_MODE']?.trim().toLowerCase();
+  if (envMode === 'yolo') return true;
+  return (
+    config?.autoApprove === true ||
+    config?.permissions?.autoApprove === true ||
+    config?.approvalMode?.toLowerCase() === 'yolo'
+  );
+}
+
+/**
+ * Checks whether shell execution auto-approval is enabled.
+ */
+export function isAfotAutoApproveShellEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  if (isAfotAutoApproveEnabled(config)) return true;
+  if (_runtimeAutoApproveShell !== undefined) return _runtimeAutoApproveShell;
+  const env = envFlag('AFOT_AUTO_APPROVE_SHELL');
+  if (env !== undefined) return env;
+  return (
+    config?.autoApproveShell === true ||
+    config?.permissions?.autoApproveShell === true
+  );
+}
+
+/**
+ * Checks whether unrestricted filesystem directory access is enabled.
+ */
+export function isAfotAllowAllPathsEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  if (isAfotAutoApproveEnabled(config)) return true;
+  if (_runtimeAllowAllPaths !== undefined) return _runtimeAllowAllPaths;
+  const envAllowAll = envFlag('AFOT_ALLOW_ALL_PATHS');
+  if (envAllowAll !== undefined) return envAllowAll;
+  const guardEnv = process.env['AFOT_PATH_GUARD']?.trim().toLowerCase();
+  if (
+    guardEnv === 'off' ||
+    guardEnv === '0' ||
+    guardEnv === 'false' ||
+    guardEnv === 'no' ||
+    guardEnv === 'disabled'
+  ) {
+    return true;
+  }
+  return (
+    config?.allowAllPaths === true ||
+    config?.permissions?.allowAllPaths === true
+  );
+}
+
+/**
+ * Checks whether workspace write/edit auto-approval is enabled.
+ */
+export function isAfotAutoApproveWorkspaceWritesEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  if (isAfotAutoApproveEnabled(config)) return true;
+  if (_runtimeAutoApproveWorkspaceWrites !== undefined)
+    return _runtimeAutoApproveWorkspaceWrites;
+  const env =
+    envFlag('AFOT_AUTO_APPROVE_WRITES') ??
+    envFlag('AFOT_AUTO_APPROVE_WORKSPACE_WRITES');
+  if (env !== undefined) return env;
+  return (
+    config?.autoApproveWorkspaceWrites === true ||
+    config?.permissions?.autoApproveWorkspaceWrites === true
+  );
+}
+
+/**
+ * Retrieves configured extra allowed paths.
+ */
+export function getAfotAllowedPaths(
+  config: AfotConfig | null = readAfotConfig(),
+): string[] {
+  const envPaths = process.env['AFOT_ALLOWED_PATHS']
+    ?.split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const cfgPaths =
+    config?.allowedPaths ?? config?.permissions?.allowedPaths ?? [];
+  return [...new Set([...(envPaths ?? []), ...cfgPaths])];
+}
+
+/**
+ * Retrieves configured default approval mode if set in env or config.
+ */
+export function getAfotApprovalMode(
+  config: AfotConfig | null = readAfotConfig(),
+): string | undefined {
+  const envMode = process.env['AFOT_APPROVAL_MODE']?.trim();
+  if (envMode) return envMode;
+  if (isAfotAutoApproveEnabled(config)) return 'yolo';
+  return config?.approvalMode;
+}
+
+/**
+ * Persists the default approval mode to ~/.afot/config.json.
+ */
+export function setAfotApprovalMode(mode: string): void {
+  ensureAfotDir();
+  const configPath = getAfotConfigFilePath();
+  const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
+  config.approvalMode = mode;
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
+  debugLogger.log(`AFOT: Default approval mode set to "${mode}"`);
+}
+
+/**
+ * Persists updated permissions settings to ~/.afot/config.json.
+ */
+export function setAfotPermissions(
+  permissions: Partial<AfotPermissionsConfig>,
+): void {
+  ensureAfotDir();
+  const configPath = getAfotConfigFilePath();
+  const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
+  if (!config.permissions) {
+    config.permissions = {};
+  }
+  Object.assign(config.permissions, permissions);
+  if (permissions.autoApprove !== undefined) {
+    config.autoApprove = permissions.autoApprove;
+  }
+  if (permissions.autoApproveShell !== undefined) {
+    config.autoApproveShell = permissions.autoApproveShell;
+  }
+  if (permissions.allowAllPaths !== undefined) {
+    config.allowAllPaths = permissions.allowAllPaths;
+  }
+  if (permissions.autoApproveWorkspaceWrites !== undefined) {
+    config.autoApproveWorkspaceWrites = permissions.autoApproveWorkspaceWrites;
+  }
+  if (permissions.allowedPaths !== undefined) {
+    config.allowedPaths = permissions.allowedPaths;
+  }
+  atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
+  debugLogger.log('AFOT: Permissions configuration updated');
 }
 
 export interface AfotRecentModel {

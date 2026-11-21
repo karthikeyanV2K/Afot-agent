@@ -38,6 +38,11 @@ import { isNodeError } from '../utils/errors.js';
 import { MCP_TOOL_PREFIX } from '../tools/mcp-tool.js';
 
 import { isDirectorySecure } from '../utils/security.js';
+import {
+  isAfotAutoApproveEnabled,
+  isAfotAutoApproveShellEnabled,
+  isAfotAutoApproveWorkspaceWritesEnabled,
+} from '../core/afotAuthStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -433,6 +438,51 @@ export async function createPolicyEngineConfig(
         priority: EXCLUDE_TOOLS_FLAG_PRIORITY,
         source: 'Settings (Tools Excluded)',
       });
+    }
+  }
+
+  // AFOT Permission rules (priority 998, just like YOLO mode):
+  if (isAfotAutoApproveEnabled()) {
+    rules.push({
+      toolName: '*',
+      decision: PolicyDecision.ALLOW,
+      priority: 998,
+      source: 'AFOT Permissions (autoApprove)',
+      allowRedirection: true,
+      allowCommandSubstitution: true,
+    });
+  } else {
+    if (isAfotAutoApproveShellEnabled()) {
+      rules.push({
+        toolName: 'run_shell_command',
+        decision: PolicyDecision.ALLOW,
+        priority: 998,
+        source: 'AFOT Permissions (autoApproveShell)',
+        allowRedirection: true,
+        allowCommandSubstitution: true,
+      });
+    }
+    if (isAfotAutoApproveWorkspaceWritesEnabled()) {
+      rules.push(
+        {
+          toolName: 'write_file',
+          decision: PolicyDecision.ALLOW,
+          priority: 998,
+          source: 'AFOT Permissions (autoApproveWorkspaceWrites)',
+        },
+        {
+          toolName: 'replace',
+          decision: PolicyDecision.ALLOW,
+          priority: 998,
+          source: 'AFOT Permissions (autoApproveWorkspaceWrites)',
+        },
+        {
+          toolName: 'edit',
+          decision: PolicyDecision.ALLOW,
+          priority: 998,
+          source: 'AFOT Permissions (autoApproveWorkspaceWrites)',
+        },
+      );
     }
   }
 

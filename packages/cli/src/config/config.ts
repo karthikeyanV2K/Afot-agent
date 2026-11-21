@@ -49,6 +49,9 @@ import {
   type OutputFormat,
   detectIdeFromEnv,
   AuthType,
+  getAfotApprovalMode,
+  setAllowAllPaths,
+  setAfotRuntimePermissions,
 } from '@google/gemini-cli-core';
 import {
   type Settings,
@@ -727,9 +730,19 @@ export async function loadCliConfig(
   const rawApprovalMode =
     argv.approvalMode ||
     (argv.yolo ? 'yolo' : undefined) ||
-    ((settings.general?.defaultApprovalMode as string) !== 'yolo'
-      ? settings.general?.defaultApprovalMode
-      : undefined);
+    settings.general?.defaultApprovalMode ||
+    getAfotApprovalMode();
+
+  if (settings.general?.allowAllPaths !== undefined) {
+    setAllowAllPaths(Boolean(settings.general.allowAllPaths));
+    setAfotRuntimePermissions({ allowAllPaths: Boolean(settings.general.allowAllPaths) });
+  }
+  if (settings.general?.autoApproveShell !== undefined) {
+    setAfotRuntimePermissions({ autoApproveShell: Boolean(settings.general.autoApproveShell) });
+  }
+  if (settings.general?.autoApproveWorkspaceWrites !== undefined) {
+    setAfotRuntimePermissions({ autoApproveWorkspaceWrites: Boolean(settings.general.autoApproveWorkspaceWrites) });
+  }
 
   if (rawApprovalMode) {
     switch (rawApprovalMode) {

@@ -92,4 +92,50 @@ describe('approvalCommand', () => {
     );
     expect(mockSetApprovalMode).not.toHaveBeenCalled();
   });
+
+  it('should toggle paths unrestricted directory access', async () => {
+    await approvalCommand.action!(mockContext, 'paths on');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Unrestricted Directory Access: `ENABLED`'),
+      }),
+    );
+
+    await approvalCommand.action!(mockContext, 'paths off');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Unrestricted Directory Access: `DISABLED`'),
+      }),
+    );
+  });
+
+  it('should toggle shell command auto-approval', async () => {
+    await approvalCommand.action!(mockContext, 'shell on');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Shell Auto-Approval: `ENABLED`'),
+      }),
+    );
+
+    await approvalCommand.action!(mockContext, 'shell off');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Shell Auto-Approval: `DISABLED`'),
+      }),
+    );
+  });
+
+  it('should save settings when requested', async () => {
+    await approvalCommand.action!(mockContext, 'save');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Settings Saved to `~/.afot/config.json`'),
+      }),
+    );
+  });
 });

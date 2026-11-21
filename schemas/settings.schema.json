@@ -89,11 +89,32 @@
         },
         "defaultApprovalMode": {
           "title": "Default Approval Mode",
-          "description": "The default approval mode for tool execution. 'default' prompts for approval, 'auto_edit' auto-approves edit tools, and 'plan' is read-only mode. YOLO mode (auto-approve all actions) can only be enabled via command line (--yolo or --approval-mode=yolo).",
-          "markdownDescription": "The default approval mode for tool execution. 'default' prompts for approval, 'auto_edit' auto-approves edit tools, and 'plan' is read-only mode. YOLO mode (auto-approve all actions) can only be enabled via command line (--yolo or --approval-mode=yolo).\n\n- Category: `General`\n- Requires restart: `no`\n- Default: `default`",
+          "description": "The default approval mode for tool execution. 'default' prompts for approval, 'auto_edit' auto-approves edit tools, 'plan' is read-only mode, and 'yolo' enables full autonomous execution.",
+          "markdownDescription": "The default approval mode for tool execution. 'default' prompts for approval, 'auto_edit' auto-approves edit tools, 'plan' is read-only mode, and 'yolo' enables full autonomous execution.\n\n- Category: `General`\n- Requires restart: `no`\n- Default: `default`",
           "default": "default",
           "type": "string",
-          "enum": ["default", "auto_edit", "plan"]
+          "enum": ["default", "auto_edit", "plan", "yolo"]
+        },
+        "allowAllPaths": {
+          "title": "Allow All Directory Paths",
+          "description": "Allow tools and shell commands to access any directory outside the current working directory without prompting.",
+          "markdownDescription": "Allow tools and shell commands to access any directory outside the current working directory without prompting.\n\n- Category: `General`\n- Requires restart: `no`\n- Default: `false`",
+          "default": false,
+          "type": "boolean"
+        },
+        "autoApproveShell": {
+          "title": "Auto Approve Shell Commands",
+          "description": "Automatically approve shell commands without prompting for confirmation.",
+          "markdownDescription": "Automatically approve shell commands without prompting for confirmation.\n\n- Category: `General`\n- Requires restart: `no`\n- Default: `false`",
+          "default": false,
+          "type": "boolean"
+        },
+        "autoApproveWorkspaceWrites": {
+          "title": "Auto Approve Workspace Writes",
+          "description": "Automatically approve file edits and writes within the workspace without prompting.",
+          "markdownDescription": "Automatically approve file edits and writes within the workspace without prompting.\n\n- Category: `General`\n- Requires restart: `no`\n- Default: `false`",
+          "default": false,
+          "type": "boolean"
         },
         "devtools": {
           "title": "DevTools",

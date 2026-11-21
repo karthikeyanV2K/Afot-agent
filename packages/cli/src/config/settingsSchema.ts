@@ -234,15 +234,45 @@ const SETTINGS_SCHEMA = {
         description: oneLine`
           The default approval mode for tool execution.
           'default' prompts for approval, 'auto_edit' auto-approves edit tools,
-          and 'plan' is read-only mode. YOLO mode (auto-approve all actions) can
-          only be enabled via command line (--yolo or --approval-mode=yolo).
+          'plan' is read-only mode, and 'yolo' enables full autonomous execution.
         `,
         showInDialog: true,
         options: [
           { value: 'default', label: 'Default' },
           { value: 'auto_edit', label: 'Auto Edit' },
           { value: 'plan', label: 'Plan' },
+          { value: 'yolo', label: 'YOLO (Auto-Approve All)' },
         ],
+      },
+      allowAllPaths: {
+        type: 'boolean',
+        label: 'Allow All Directory Paths',
+        category: 'General',
+        requiresRestart: false,
+        default: false,
+        description:
+          'Allow tools and shell commands to access any directory outside the current working directory without prompting.',
+        showInDialog: true,
+      },
+      autoApproveShell: {
+        type: 'boolean',
+        label: 'Auto Approve Shell Commands',
+        category: 'General',
+        requiresRestart: false,
+        default: false,
+        description:
+          'Automatically approve shell commands without prompting for confirmation.',
+        showInDialog: true,
+      },
+      autoApproveWorkspaceWrites: {
+        type: 'boolean',
+        label: 'Auto Approve Workspace Writes',
+        category: 'General',
+        requiresRestart: false,
+        default: false,
+        description:
+          'Automatically approve file edits and writes within the workspace without prompting.',
+        showInDialog: true,
       },
       devtools: {
         type: 'boolean',

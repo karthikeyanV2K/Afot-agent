@@ -32,6 +32,12 @@ import {
   grantPath,
   normalizeGrantTarget,
 } from '../core/afotPathGuard.js';
+import {
+  isAfotAutoApproveEnabled,
+  isAfotAutoApproveShellEnabled,
+  isAfotAllowAllPathsEnabled,
+  isAfotAutoApproveWorkspaceWritesEnabled,
+} from '../core/afotAuthStorage.js';
 import type { PathPermissionDecision, Message } from '../confirmation-bus/types.js';
 
 /**
@@ -202,6 +208,18 @@ export abstract class BaseToolInvocation<
     if (isPathAllowed(targetPath)) return;
     if (isPathGuardDisabled()) return;
 
+    // Auto-approve if in YOLO mode, or if auto-approval / path grant is enabled
+    if (
+      this.getApprovalMode() === ApprovalMode.YOLO ||
+      isAfotAutoApproveEnabled() ||
+      (operation === 'execute' && isAfotAutoApproveShellEnabled()) ||
+      ((operation === 'read' || operation === 'write') &&
+        isAfotAllowAllPathsEnabled())
+    ) {
+      grantPath(normalizeGrantTarget(targetPath), 'once');
+      return;
+    }
+
     // Fail CLOSED: outside the session directory, no confirmation channel
     // (missing/incomplete message bus) means no access. Silently allowing it
     // would turn the sandbox off whenever a tool was constructed without a bus.
@@ -306,7 +324,9 @@ export abstract class BaseToolInvocation<
     if (
       !isTargetingBuildFile &&
       this.respectsAutoEdit &&
-      this.getApprovalMode() === ApprovalMode.AUTO_EDIT &&
+      (this.getApprovalMode() === ApprovalMode.AUTO_EDIT ||
+        isAfotAutoApproveWorkspaceWritesEnabled() ||
+        isAfotAutoApproveEnabled()) &&
       forcedDecision !== 'ask_user'
     ) {
       return false;

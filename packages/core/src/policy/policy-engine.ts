@@ -51,6 +51,10 @@ import {
   isMcpToolName,
 } from '../tools/mcp-tool.js';
 import {
+  isAfotAutoApproveShellEnabled,
+  isAfotAutoApproveEnabled,
+} from '../core/afotAuthStorage.js';
+import {
   type SandboxManager,
   NoopSandboxManager,
   type SandboxPermissions,
@@ -348,11 +352,13 @@ export class PolicyEngine {
       return true;
     }
 
-    // Do not downgrade (do not ask user) if in AUTO_EDIT or YOLO mode.
+    // Do not downgrade (do not ask user) if in AUTO_EDIT, YOLO mode, or auto-approve shell.
     // These modes trust the agent's actions (YOLO) or specific task (AUTO_EDIT).
     if (
       this.approvalMode === ApprovalMode.AUTO_EDIT ||
-      this.approvalMode === ApprovalMode.YOLO
+      this.approvalMode === ApprovalMode.YOLO ||
+      isAfotAutoApproveShellEnabled() ||
+      isAfotAutoApproveEnabled()
     ) {
       return false;
     }
@@ -377,8 +383,12 @@ export class PolicyEngine {
       return true;
     }
 
-    // Do not downgrade (do not ask user) if in YOLO mode for catch-all rules.
-    if (this.approvalMode === ApprovalMode.YOLO) {
+    // Do not downgrade (do not ask user) if in YOLO mode or auto-approve shell for catch-all rules.
+    if (
+      this.approvalMode === ApprovalMode.YOLO ||
+      isAfotAutoApproveShellEnabled() ||
+      isAfotAutoApproveEnabled()
+    ) {
       return false;
     }
 
@@ -412,7 +422,9 @@ export class PolicyEngine {
       if (
         effectiveCwd !== workspace &&
         !isSubpath(workspace, effectiveCwd) &&
-        this.approvalMode !== ApprovalMode.YOLO
+        this.approvalMode !== ApprovalMode.YOLO &&
+        !isAfotAutoApproveShellEnabled() &&
+        !isAfotAutoApproveEnabled()
       ) {
         debugLogger.debug(
           `[PolicyEngine.check] Command working directory is outside workspace, forcing ASK_USER: ${command}`,
@@ -428,9 +440,13 @@ export class PolicyEngine {
       }
 
       if (this.sandboxManager.isDangerousCommand(parsedArgs, effectiveCwd)) {
-        if (this.approvalMode === ApprovalMode.YOLO) {
+        if (
+          this.approvalMode === ApprovalMode.YOLO ||
+          isAfotAutoApproveShellEnabled() ||
+          isAfotAutoApproveEnabled()
+        ) {
           debugLogger.debug(
-            `[PolicyEngine.check] Command evaluated as dangerous, but YOLO mode is active. Preserving decision: ${command}`,
+            `[PolicyEngine.check] Command evaluated as dangerous, but YOLO/auto-approve is active. Preserving decision: ${command}`,
           );
           return decision;
         }
@@ -445,7 +461,12 @@ export class PolicyEngine {
         this.sandboxManager.isKnownSafeCommand(parsedArgs, effectiveCwd) &&
         decision === PolicyDecision.ASK_USER
       ) {
-        if (effectiveCwd !== workspace && !isSubpath(workspace, effectiveCwd)) {
+        if (
+          effectiveCwd !== workspace &&
+          !isSubpath(workspace, effectiveCwd) &&
+          !isAfotAutoApproveShellEnabled() &&
+          !isAfotAutoApproveEnabled()
+        ) {
           debugLogger.debug(
             `[PolicyEngine.check] dir_path evaluated outside workspace. Preserving ASK_USER: ${command}`,
           );
@@ -500,7 +521,11 @@ export class PolicyEngine {
         return { decision: PolicyDecision.DENY, rule };
       }
 
-      if (this.approvalMode === ApprovalMode.YOLO) {
+      if (
+        this.approvalMode === ApprovalMode.YOLO ||
+        isAfotAutoApproveShellEnabled() ||
+        isAfotAutoApproveEnabled()
+      ) {
         // Block execution if arguments cannot be validated
         if (rule?.argsPattern) {
           debugLogger.debug(
@@ -537,6 +562,15 @@ export class PolicyEngine {
     // Start with the decision from the rule or heuristics.
     // If the tool call was already downgraded (e.g. by heuristics), we start there.
     let aggregateDecision = ruleDecision;
+
+    if (
+      (this.approvalMode === ApprovalMode.YOLO ||
+        isAfotAutoApproveShellEnabled() ||
+        isAfotAutoApproveEnabled()) &&
+      !rule?.argsPattern
+    ) {
+      aggregateDecision = PolicyDecision.ALLOW;
+    }
 
     // If heuristics downgraded the decision, we don't blame the rule.
     let responsibleRule: PolicyRule | undefined =
@@ -688,13 +722,17 @@ export class PolicyEngine {
     const isOutsideWorkspace =
       effectiveCwd !== workspace &&
       !isSubpath(workspace, effectiveCwd) &&
-      this.approvalMode !== ApprovalMode.YOLO;
+      this.approvalMode !== ApprovalMode.YOLO &&
+      !isAfotAutoApproveShellEnabled() &&
+      !isAfotAutoApproveEnabled();
     const parsedObjArgs = shellParse(command);
     const parsedArgs = parsedObjArgs.map(extractStringFromParseEntry);
     const isUntrustedGit =
       containsGitCommand(parsedArgs) && !this.isTrustedFolder();
     const isDangerous =
       this.approvalMode !== ApprovalMode.YOLO &&
+      !isAfotAutoApproveShellEnabled() &&
+      !isAfotAutoApproveEnabled() &&
       this.sandboxManager.isDangerousCommand(parsedArgs, effectiveCwd);
 
     // If the top-level compound command (e.g. a `for` loop or subshell) fell through
@@ -825,6 +863,17 @@ export class PolicyEngine {
         );
 
         let ruleDecision = rule.decision;
+        if (
+          toolCall.name !== 'ask_user' &&
+          rule.toolName !== 'ask_user' &&
+          (isAfotAutoApproveEnabled() ||
+            (isShellCommand && isAfotAutoApproveShellEnabled())) &&
+          ruleDecision === PolicyDecision.ASK_USER &&
+          !rule.argsPattern &&
+          !('commandPrefix' in rule)
+        ) {
+          ruleDecision = PolicyDecision.ALLOW;
+        }
         let hasTopLevelHeuristicDowngrade = false;
         if (
           !skipHeuristics &&
@@ -873,9 +922,16 @@ export class PolicyEngine {
 
     // Default if no rule matched
     if (decision === undefined) {
-      if (this.approvalMode === ApprovalMode.YOLO) {
+      if (
+        toolCall.name !== 'ask_user' &&
+        (this.approvalMode === ApprovalMode.YOLO ||
+          isAfotAutoApproveEnabled() ||
+          (toolName &&
+            SHELL_TOOL_NAMES.includes(toolName) &&
+            isAfotAutoApproveShellEnabled()))
+      ) {
         debugLogger.debug(
-          `[PolicyEngine.check] NO MATCH in YOLO mode - using ALLOW`,
+          `[PolicyEngine.check] NO MATCH in YOLO/auto-approve mode - using ALLOW`,
         );
         decision = PolicyDecision.ALLOW;
       } else {

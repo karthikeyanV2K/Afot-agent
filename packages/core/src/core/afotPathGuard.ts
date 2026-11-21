@@ -26,7 +26,13 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolveToRealPath, isSubpath } from '../utils/paths.js';
 import { debugLogger } from '../utils/debugLogger.js';
-import { getAfotDir, atomicWriteFile } from './afotAuthStorage.js';
+import {
+  getAfotDir,
+  atomicWriteFile,
+  isAfotAllowAllPathsEnabled,
+  isAfotAutoApproveEnabled,
+  getAfotAllowedPaths,
+} from './afotAuthStorage.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,15 +59,43 @@ let _sessionRoot: string = process.cwd();
 const _grants: PathGrant[] = [];
 
 let _initialized = false;
+let _allowAllPaths = false;
+
+export function setAllowAllPaths(allow: boolean): void {
+  _allowAllPaths = allow;
+}
+
+export function isAllowAllPaths(): boolean {
+  return _allowAllPaths;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Explicit escape hatch (AFOT_PATH_GUARD=off). Used by unit tests that build
- * tools without a confirmation bus. Never enabled implicitly.
+ * Explicit escape hatch (AFOT_PATH_GUARD=off/false/0, AFOT_ALLOW_ALL_PATHS=1/true, or allowAllPaths config).
  */
 export function isPathGuardDisabled(): boolean {
-  return process.env['AFOT_PATH_GUARD']?.trim().toLowerCase() === 'off';
+  if (_allowAllPaths) return true;
+  const env = process.env['AFOT_PATH_GUARD']?.trim().toLowerCase();
+  if (
+    env === 'off' ||
+    env === '0' ||
+    env === 'false' ||
+    env === 'no' ||
+    env === 'disabled'
+  ) {
+    return true;
+  }
+  const allowAllEnv = process.env['AFOT_ALLOW_ALL_PATHS']?.trim().toLowerCase();
+  if (
+    allowAllEnv === '1' ||
+    allowAllEnv === 'true' ||
+    allowAllEnv === 'yes' ||
+    allowAllEnv === 'on'
+  ) {
+    return true;
+  }
+  return isAfotAllowAllPathsEnabled() || isAfotAutoApproveEnabled();
 }
 
 function isFilesystemRoot(p: string): boolean {
@@ -82,7 +116,7 @@ function safeReal(p: string): string {
  * grant that targets the AFOT directory itself, so the model cannot read keys or
  * give itself new grants just because the project lives under $HOME.
  */
-function isProtectedAfotPath(real: string): boolean {
+export function isProtectedAfotPath(real: string): boolean {
   return isSubpath(safeReal(getAfotDir()), real);
 }
 
@@ -103,6 +137,38 @@ export function initPathGuard(sessionRoot?: string): void {
   _sessionRoot = sessionRoot
     ? resolveToRealPath(sessionRoot)
     : resolveToRealPath(process.cwd());
+
+  if (isAfotAllowAllPathsEnabled()) {
+    _allowAllPaths = true;
+  }
+
+  // Load configured allowed paths from AFOT config / environment
+  const extraPaths = getAfotAllowedPaths();
+  for (const p of extraPaths) {
+    if (p === '*' || p.toLowerCase() === 'all') {
+      _allowAllPaths = true;
+    } else {
+      try {
+        const real = resolveToRealPath(p);
+        if (!isFilesystemRoot(real)) {
+          _grants.push({
+            realPath: real,
+            scope: 'always',
+            grantedAt: Date.now(),
+          });
+        }
+      } catch {
+        const resolved = path.resolve(p);
+        if (!isFilesystemRoot(resolved)) {
+          _grants.push({
+            realPath: resolved,
+            scope: 'always',
+            grantedAt: Date.now(),
+          });
+        }
+      }
+    }
+  }
 
   // Load persisted always-grants
   const grantsPath = getGrantsFilePath();
@@ -187,6 +253,9 @@ export function isPathAllowed(targetPath: string): boolean {
     const afotReal = safeReal(getAfotDir());
     return _grants.some((g) => isSubpath(afotReal, g.realPath) && isSubpath(g.realPath, real));
   }
+
+  // If unrestricted paths are allowed or path guard is disabled, permit access
+  if (_allowAllPaths || isPathGuardDisabled()) return true;
 
   // Always allow inside session root
   if (isSubpath(_sessionRoot, real)) return true;
@@ -277,8 +346,14 @@ export function normalizeGrantTarget(targetPath: string): string {
   const broad = (dir: string, file: string): string => {
     // A file directly in $HOME or in the filesystem root must not turn into a
     // grant for the entire home directory (which holds ~/.ssh, ~/.afot, …).
-    const home = safeReal(os.homedir());
-    return dir === home || isFilesystemRoot(dir) ? file : dir;
+    const homeEnv =
+      process.env['HOME'] || process.env['USERPROFILE'] || os.homedir();
+    const home = safeReal(homeEnv);
+    const isWindows = process.platform === 'win32';
+    const isHome = isWindows
+      ? home.toLowerCase() === dir.toLowerCase()
+      : home === dir;
+    return isHome || isFilesystemRoot(dir) ? file : dir;
   };
   try {
     const real = resolveToRealPath(targetPath);

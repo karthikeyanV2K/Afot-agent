@@ -2951,6 +2951,16 @@ describe('loadCliConfig approval mode', () => {
       const config = await loadCliConfig(settings, 'test-session', argv);
       expect(config.getApprovalMode()).toBe(ApprovalMode.DEFAULT);
     });
+
+    it('should respect yolo mode from settings when defaultApprovalMode is yolo', async () => {
+      process.argv = ['node', 'script.js'];
+      const settings = createTestMergedSettings({
+        general: { defaultApprovalMode: 'yolo' },
+      });
+      const argv = await parseArguments(settings);
+      const config = await loadCliConfig(settings, 'test-session', argv);
+      expect(config.getApprovalMode()).toBe(ServerConfig.ApprovalMode.YOLO);
+    });
   });
 });
 
