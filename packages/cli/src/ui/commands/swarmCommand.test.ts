@@ -76,7 +76,11 @@ describe('swarmCommand', () => {
 
     mockContext = {
       services: {
-        agentContext: {} as never,
+        agentContext: {
+          config: {
+            getActiveModel: vi.fn().mockReturnValue('minimaxai/minimax-m3.1-flash'),
+          },
+        } as never,
         settings: {} as never,
         git: undefined,
         logger: {} as never,
@@ -91,20 +95,81 @@ describe('swarmCommand', () => {
     } as unknown as CommandContext;
   });
 
-  it('should have correct name, aliases, and subcommands', () => {
+  it('should have correct name, aliases, and AGY subcommands', () => {
     expect(swarmCommand.name).toBe('swarm');
     expect(swarmCommand.altNames).toContain('orchestrate');
     const subNames = swarmCommand.subCommands?.map((s) => s.name);
+    expect(subNames).toContain('status');
+    expect(subNames).toContain('board');
+    expect(subNames).toContain('post');
+    expect(subNames).toContain('add');
+    expect(subNames).toContain('kill');
+    expect(subNames).toContain('model');
+    expect(subNames).toContain('models');
+    expect(subNames).toContain('title');
     expect(subNames).toContain('plan');
+    expect(subNames).toContain('run');
     expect(subNames).toContain('workers');
+    expect(subNames).toContain('reset');
   });
 
-  it('should show help when executed with no arguments', async () => {
+  it('should show AGY swarm coordinator dashboard when executed with no arguments', async () => {
     await swarmCommand.action!(mockContext, '');
     expect(mockAddItem).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MessageType.GEMINI,
-        text: expect.stringContaining('AFOT Parallel Swarm Orchestrator'),
+        text: expect.stringContaining('AFOT SWARM COORDINATOR & MESSAGE BOARD'),
+      }),
+    );
+  });
+
+  it('should display worker roster on "status"', async () => {
+    await swarmCommand.action!(mockContext, 'status');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('AFOT Swarm Worker Roster'),
+      }),
+    );
+  });
+
+  it('should add a worker to the roster on "add <name> <brief>"', async () => {
+    await swarmCommand.action!(mockContext, 'add coder Implement auth tests');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Worker Added to Swarm Roster'),
+      }),
+    );
+  });
+
+  it('should post message to the shared board on "post @worker message"', async () => {
+    await swarmCommand.action!(mockContext, 'post @coder Please refactor auth.ts');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Posted to Board'),
+      }),
+    );
+  });
+
+  it('should display board messages on "board"', async () => {
+    await swarmCommand.action!(mockContext, 'board');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('AFOT Swarm Message Board'),
+      }),
+    );
+  });
+
+  it('should terminate worker on "kill <name>"', async () => {
+    await swarmCommand.action!(mockContext, 'add tester Run tests');
+    await swarmCommand.action!(mockContext, 'kill tester');
+    expect(mockAddItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MessageType.GEMINI,
+        text: expect.stringContaining('Worker @tester has been terminated'),
       }),
     );
   });

@@ -85,6 +85,174 @@ export interface SwarmProgressEvent {
   tokensSavedEstimate?: number;
 }
 
+export type SwarmMemberState = 'waiting' | 'working' | 'stopped' | 'killed';
+
+export interface SwarmMember {
+  name: string;
+  role: SwarmWorkerType;
+  model?: string;
+  state: SwarmMemberState;
+  brief: string;
+  createdAt: number;
+  lastActiveAt?: number;
+}
+
+export interface SwarmBoardPost {
+  seq: number;
+  sender: string;
+  recipient?: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface SwarmRosterStatus {
+  title: string;
+  coordinator: string;
+  members: SwarmMember[];
+  recentPosts: SwarmBoardPost[];
+  totalPosts: number;
+}
+
+/**
+ * Shared message board and worker roster manager matching the AGY CLI Swarm Protocol.
+ */
+export class AfotSwarmManager {
+  private static instance?: AfotSwarmManager;
+  private title = 'AFOT Swarm';
+  private members = new Map<string, SwarmMember>();
+  private board: SwarmBoardPost[] = [];
+  private seqCounter = 0;
+
+  constructor() {
+    this.reset();
+  }
+
+  static getInstance(): AfotSwarmManager {
+    if (!AfotSwarmManager.instance) {
+      AfotSwarmManager.instance = new AfotSwarmManager();
+    }
+    return AfotSwarmManager.instance;
+  }
+
+  reset(): void {
+    this.title = 'AFOT Swarm';
+    this.members.clear();
+    this.board = [];
+    this.seqCounter = 0;
+    this.members.set('coordinator', {
+      name: 'coordinator',
+      role: 'generalist',
+      state: 'waiting',
+      brief: 'Swarm Coordinator and Dispatcher',
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+    });
+  }
+
+  setTitle(title: string): void {
+    this.title = title.trim();
+  }
+
+  getTitle(): string {
+    return this.title;
+  }
+
+  postMessage(sender: string, text: string, recipient?: string): SwarmBoardPost {
+    this.seqCounter++;
+    const post: SwarmBoardPost = {
+      seq: this.seqCounter,
+      sender: sender.replace(/^@/, ''),
+      recipient: recipient ? recipient.replace(/^@/, '') : undefined,
+      text: text.trim(),
+      timestamp: Date.now(),
+    };
+    this.board.push(post);
+    return post;
+  }
+
+  readBoard(sinceSeq = 0): SwarmBoardPost[] {
+    return this.board.filter((p) => p.seq > sinceSeq);
+  }
+
+  addWorker(
+    name: string,
+    brief: string,
+    role: SwarmWorkerType = 'coder',
+    model?: string,
+  ): SwarmMember {
+    const cleanName = name.toLowerCase().replace(/^@/, '').trim();
+    const existing = this.members.get(cleanName);
+    if (existing && existing.state === 'killed') {
+      existing.state = 'waiting';
+      existing.brief = brief;
+      existing.role = role;
+      if (model) existing.model = model;
+      existing.lastActiveAt = Date.now();
+      this.postMessage('coordinator', `@${cleanName} revived: ${brief}`, cleanName);
+      return existing;
+    }
+
+    const member: SwarmMember = {
+      name: cleanName,
+      role,
+      model,
+      state: 'waiting',
+      brief,
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+    };
+    this.members.set(cleanName, member);
+    this.postMessage('coordinator', `@${cleanName} ${brief}`, cleanName);
+    return member;
+  }
+
+  setMemberState(name: string, state: SwarmMemberState, brief?: string): boolean {
+    const cleanName = name.toLowerCase().replace(/^@/, '').trim();
+    const member = this.members.get(cleanName);
+    if (!member) return false;
+    member.state = state;
+    member.lastActiveAt = Date.now();
+    if (brief) member.brief = brief;
+    return true;
+  }
+
+  killWorker(name: string): boolean {
+    const cleanName = name.toLowerCase().replace(/^@/, '').trim();
+    if (cleanName === 'coordinator') return false;
+    const member = this.members.get(cleanName);
+    if (!member) return false;
+    member.state = 'killed';
+    this.postMessage('coordinator', `@${cleanName} killed.`, cleanName);
+    return true;
+  }
+
+  setWorkerModel(name: string, model: string): boolean {
+    const cleanName = name.toLowerCase().replace(/^@/, '').trim();
+    const member = this.members.get(cleanName);
+    if (!member) return false;
+    member.model = model.trim();
+    return true;
+  }
+
+  getMember(name: string): SwarmMember | undefined {
+    return this.members.get(name.toLowerCase().replace(/^@/, '').trim());
+  }
+
+  getAllMembers(): SwarmMember[] {
+    return Array.from(this.members.values());
+  }
+
+  getStatus(): SwarmRosterStatus {
+    return {
+      title: this.title,
+      coordinator: 'coordinator',
+      members: this.getAllMembers(),
+      recentPosts: this.board.slice(-15),
+      totalPosts: this.board.length,
+    };
+  }
+}
+
 export interface SwarmResult {
   goal: string;
   plan: SwarmPlan;
@@ -353,9 +521,13 @@ Rules:
 
     try {
       if (this.context.geminiClient) {
+        const activeModel =
+          typeof this.context.config?.getModel === 'function'
+            ? this.context.config.getModel() || 'default'
+            : 'default';
         const contents = [{ role: 'user', parts: [{ text: prompt }] }];
         const response = await this.context.geminiClient.generateContent(
-          { model: 'default' },
+          { model: activeModel },
           contents,
           signal ?? new AbortController().signal,
           LlmRole.MAIN,
@@ -435,6 +607,13 @@ Rules:
       plan.tasks.map((t) => [t.id, t]),
     );
     const completedOutputs = new Map<string, string>();
+    const swarmManager = AfotSwarmManager.getInstance();
+    swarmManager.setTitle(plan.goal);
+
+    // Register all planned workers in the live AGY swarm roster
+    for (const task of plan.tasks) {
+      swarmManager.addWorker(task.worker, task.brief, task.worker);
+    }
 
     onProgress?.({
       type: 'plan_generated',
@@ -468,6 +647,7 @@ Rules:
           task.status = 'skipped';
           task.error =
             'Skipped because an upstream dependency failed or could not be satisfied (cycle?).';
+          swarmManager.setMemberState(task.worker, 'stopped', task.error);
           onProgress?.({
             type: 'task_failed',
             taskId: task.id,
@@ -490,10 +670,18 @@ Rules:
         if (signal?.aborted) {
           task.status = 'failed';
           task.error = 'Aborted by user signal.';
+          swarmManager.setMemberState(task.worker, 'stopped', task.error);
           return;
         }
 
         task.status = 'running';
+        swarmManager.setMemberState(task.worker, 'working', task.brief);
+        swarmManager.postMessage(
+          'coordinator',
+          `@${task.worker} [${task.id}] ${task.title}: ${task.brief}`,
+          task.worker,
+        );
+
         onProgress?.({
           type: 'task_start',
           taskId: task.id,
@@ -509,12 +697,30 @@ Rules:
             plan.goal,
             completedOutputs,
             signal,
-            onProgress,
+            (event) => {
+              if (event.type === 'task_progress' && event.detail) {
+                // Post progress snippet to the shared board for transparency
+                swarmManager.postMessage(
+                  task.worker,
+                  event.detail.slice(0, 150),
+                  'coordinator',
+                );
+              }
+              onProgress?.(event);
+            },
           );
           task.status = 'completed';
           task.output = output;
           task.durationMs = Date.now() - taskStart;
           completedOutputs.set(task.id, output);
+
+          swarmManager.setMemberState(task.worker, 'waiting');
+          const snippet = output.trim().split('\n')[0] ?? 'Completed';
+          swarmManager.postMessage(
+            task.worker,
+            `[done] ${task.title} finished (${(task.durationMs / 1000).toFixed(1)}s): ${snippet.slice(0, 100)}`,
+            'coordinator',
+          );
 
           onProgress?.({
             type: 'task_complete',
@@ -528,6 +734,13 @@ Rules:
           task.status = 'failed';
           task.error = err instanceof Error ? err.message : String(err);
           task.durationMs = Date.now() - taskStart;
+
+          swarmManager.setMemberState(task.worker, 'stopped', task.error);
+          swarmManager.postMessage(
+            task.worker,
+            `[failed] ${task.title}: ${task.error}`,
+            'coordinator',
+          );
 
           onProgress?.({
             type: 'task_failed',

@@ -11,7 +11,9 @@
   "main": "dist/index.js",
   "bin": {
     "afot": "dist/index.js",
-    "gemini": "dist/index.js"
+    "gemini": "dist/index.js",
+    "agy": "dist/index.js",
+    "antigravity": "dist/index.js"
   },
   "scripts": {
     "build": "node ../../scripts/build_package.js",

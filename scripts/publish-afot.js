@@ -71,12 +71,14 @@ try {
   const cliPkg = JSON.parse(fs.readFileSync(cliPkgPath, 'utf-8'));
   cliPkg.name = 'afot-cli';
   const versionArg = process.argv.find((arg) => arg.startsWith('--version='));
-  cliPkg.version = versionArg ? versionArg.split('=')[1] : '1.3.9';
+  cliPkg.version = versionArg ? versionArg.split('=')[1] : '1.4.1';
   cliPkg.description =
     'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
   cliPkg.files = ['bundle/', 'README.md', 'LICENSE'];
   cliPkg.bin = {
     afot: 'bundle/gemini.js',
+    agy: 'bundle/gemini.js',
+    antigravity: 'bundle/gemini.js',
   };
   cliPkg.repository = {
     type: 'git',

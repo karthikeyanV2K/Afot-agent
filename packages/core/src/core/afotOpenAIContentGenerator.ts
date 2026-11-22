@@ -956,8 +956,14 @@ Directives:
       return matched;
     }
 
-    // If explicit custom model requested by user (not default gemini alias), trust user's model
-    if (raw && !raw.startsWith('gemini-') && raw !== 'auto') {
+    // If explicit custom model requested by user (not default gemini alias, auto, default, or inherit), trust user's model
+    if (
+      raw &&
+      !raw.startsWith('gemini-') &&
+      raw !== 'auto' &&
+      raw !== 'default' &&
+      raw !== 'inherit'
+    ) {
       return providerStripped;
     }
 
