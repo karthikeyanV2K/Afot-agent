@@ -113,4 +113,27 @@ describe('permissionsCommand', () => {
       content: `Path is not a directory: ${path.resolve('/file/not/dir')}`,
     });
   });
+
+  describe('shell subcommand', () => {
+    const shellCommand = () =>
+      permissionsCommand.subCommands?.find((cmd) => cmd.name === 'shell');
+
+    it('is registered', () => {
+      expect(shellCommand()).toBeDefined();
+    });
+
+    it('reports the current mode on status', () => {
+      const result = shellCommand()?.action?.(mockContext, 'status');
+      expect(result).toMatchObject({ type: 'message', messageType: 'info' });
+    });
+
+    it('rejects unknown values', () => {
+      const result = shellCommand()?.action?.(mockContext, 'everything');
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'error',
+        content: 'Usage: /permissions shell [workspace|ask|status]',
+      });
+    });
+  });
 });

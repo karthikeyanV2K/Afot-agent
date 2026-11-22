@@ -148,6 +148,28 @@ AFOT is built so that nothing leaves your machine, and nothing executes, unless 
 
 **Credentials:** `~/.afot/auth.json` and `config.json` are written atomically with mode `0600`. A corrupt `auth.json` makes AFOT stop with an error instead of silently replacing it.
 
+**Workspace shell approval (fewer prompts).** By default every shell command asks. To run commands that stay inside the workspace without a prompt:
+
+```
+/permissions shell workspace     # on  (saved to ~/.afot/config.json)
+/permissions shell ask           # off (default)
+```
+
+or `AFOT_SHELL_APPROVAL=workspace`, or `"shellApproval": "workspace"` in `config.json`. In `workspace` mode these **still ask**:
+
+| Category | Examples |
+| :--- | :--- |
+| Deletes | `rm`, `rmdir`, `del`, `rd`, `Remove-Item`, any `Remove-*`/`Clear-*`/`Stop-*` cmdlet, `find -delete`, `git rm`, `docker rm`, `kubectl delete`, `npm uninstall` |
+| Git history / discarding work | `git reset`, `revert`, `clean`, `restore`, `checkout -- .`, `rebase`, `push`, `stash drop`, `branch -D`, `commit --amend`, `git -c`, `git -C ..` |
+| Outside the workspace | any argument or redirect target resolving outside it (`../x`, `/etc`, `~`, `C:\other`, symlinks that leave it), `cd ..`, `cd ~` |
+| AFOT config | anything touching `~/.afot` |
+| Privilege / remote / system | `sudo`, `ssh`, `scp`, `rsync`, `kill`, `dd`, `npm i -g`, `cargo install`, `Set-ExecutionPolicy` |
+| Cannot be analysed | command substitution, loops, dynamic command names, odd quoting, `cmd.exe`, encoded PowerShell, `curl … \| sh` |
+
+This mode also stops the "build file changed, ask again" prompt for `cargo`/`npm`/`make`. DENY rules and explicit per-command ASK rules still win, and it does nothing in untrusted folders.
+
+**Limit:** this inspects the command *text*. `cargo test`, `npm test`, `python x.py` or `./run.sh` run their own code, which can delete or move anything. Real containment needs an OS sandbox.
+
 ---
 
 ## ⌨️ Useful Commands
