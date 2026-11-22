@@ -13,6 +13,9 @@ const cliDir = path.resolve(rootDir, 'packages/cli');
 const cliPkgPath = path.resolve(cliDir, 'package.json');
 const cliPkgBakPath = path.resolve(cliDir, 'package.json.bak');
 
+const versionArg = process.argv.find((arg) => arg.startsWith('--version='));
+const targetVersion = versionArg ? versionArg.split('=')[1] : '1.4.4';
+
 if (process.argv.includes('--restore')) {
   console.log('--- Restoring packages/cli/package.json ---');
   if (fs.existsSync(cliPkgBakPath)) {
@@ -38,7 +41,11 @@ if (fs.existsSync(sourceBundleDir)) {
 }
 execSync(
   'npm run build --workspace=@google/gemini-cli-core && npm run bundle',
-  { stdio: 'inherit', cwd: rootDir },
+  {
+    stdio: 'inherit',
+    cwd: rootDir,
+    env: { ...process.env, CLI_VERSION: targetVersion },
+  },
 );
 
 console.log('--- 2. Backing up packages/cli/package.json ---');
@@ -70,8 +77,7 @@ try {
 
   const cliPkg = JSON.parse(fs.readFileSync(cliPkgPath, 'utf-8'));
   cliPkg.name = 'afot-cli';
-  const versionArg = process.argv.find((arg) => arg.startsWith('--version='));
-  cliPkg.version = versionArg ? versionArg.split('=')[1] : '1.4.3';
+  cliPkg.version = targetVersion;
   cliPkg.description =
     'AFOT CLI (All For One Tech) - Terminal-first autonomous AI coding agent with multi-provider support, interactive diffs, and instant undo.';
   cliPkg.files = ['bundle/', 'README.md', 'LICENSE'];
