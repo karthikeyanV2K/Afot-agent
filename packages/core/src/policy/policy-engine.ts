@@ -53,7 +53,11 @@ import {
 import {
   isAfotAutoApproveShellEnabled,
   isAfotAutoApproveEnabled,
+  isAfotWorkspaceShellEnabled,
+  getAfotDir,
 } from '../core/afotAuthStorage.js';
+import { listGrants, getSessionRoot } from '../core/afotPathGuard.js';
+import { classifyWorkspaceShell } from './afotWorkspaceShell.js';
 import {
   type SandboxManager,
   NoopSandboxManager,
@@ -973,6 +977,42 @@ export class PolicyEngine {
         } else {
           decision = this.defaultDecision;
         }
+      }
+    }
+
+    // AFOT workspace shell approval: a command that stays inside the workspace
+    // and is not destructive skips the prompt. DENY is never overridden, and an
+    // explicit user ASK rule for a specific command/pattern still wins.
+    if (
+      decision === PolicyDecision.ASK_USER &&
+      isShellCommand &&
+      command &&
+      this.isTrustedFolder() &&
+      isAfotWorkspaceShellEnabled() &&
+      !(
+        matchedRule &&
+        matchedRule.decision === PolicyDecision.ASK_USER &&
+        (matchedRule.argsPattern || 'commandPrefix' in matchedRule)
+      )
+    ) {
+      const workspace = this.sandboxManager.getWorkspace
+        ? this.sandboxManager.getWorkspace()
+        : process.cwd();
+      const verdict = await classifyWorkspaceShell(command, {
+        cwd: shellDirPath ? path.resolve(workspace, shellDirPath) : workspace,
+        workspaceDirs: [...new Set([workspace, getSessionRoot()])],
+        extraAllowedDirs: listGrants().map((g) => g.realPath),
+        afotDir: getAfotDir(),
+      });
+      if (verdict.auto) {
+        debugLogger.debug(
+          `[PolicyEngine.check] AFOT workspace shell: auto-approved: ${command}`,
+        );
+        decision = PolicyDecision.ALLOW;
+      } else {
+        debugLogger.debug(
+          `[PolicyEngine.check] AFOT workspace shell: asking (${verdict.reason}): ${command}`,
+        );
       }
     }
 

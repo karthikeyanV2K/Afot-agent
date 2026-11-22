@@ -24,6 +24,7 @@ import {
   getSessionRoot,
   setAfotPermissions,
   setAfotRuntimePermissions,
+  getAfotShellApprovalMode,
 } from '@google/gemini-cli-core';
 
 function handleList(): SlashCommandActionReturn {
@@ -97,6 +98,46 @@ function handleAllowAll(input: string): SlashCommandActionReturn {
     content: enable
       ? '🚀 Unrestricted Directory Access: `ENABLED`. Tools and shell commands can now access any directory without prompts.'
       : '🛡️ Unrestricted Directory Access: `DISABLED`. Restricted to session workspace root.',
+  };
+}
+
+function handleShell(input: string): SlashCommandActionReturn {
+  const val = input.trim().toLowerCase();
+  if (val === '' || val === 'status') {
+    const mode = getAfotShellApprovalMode();
+    return {
+      type: 'message',
+      messageType: 'info',
+      content:
+        mode === 'workspace'
+          ? 'Shell approval: `workspace` - commands inside the workspace run without a prompt. Deletes, git reset/revert/clean/restore/push, anything outside the workspace, `~/.afot`, sudo, and pipe-to-shell still ask. Use `/permissions shell ask` to go back.'
+          : 'Shell approval: `ask` - every shell command asks (default). Use `/permissions shell workspace` to auto-run commands that stay inside the workspace.',
+    };
+  }
+  if (val !== 'workspace' && val !== 'ask') {
+    return {
+      type: 'message',
+      messageType: 'error',
+      content: 'Usage: /permissions shell [workspace|ask|status]',
+    };
+  }
+  setAfotRuntimePermissions({ shellApproval: val });
+  try {
+    setAfotPermissions({ shellApproval: val });
+  } catch (err) {
+    return {
+      type: 'message',
+      messageType: 'error',
+      content: `Shell approval set to \`${val}\` for this session only. Could not save it to ~/.afot/config.json: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  return {
+    type: 'message',
+    messageType: 'info',
+    content:
+      val === 'workspace'
+        ? 'Shell approval: `workspace`. Commands inside the workspace now run without a prompt. This checks the command text only: scripts and test runners can still do anything inside themselves. Saved to ~/.afot/config.json.'
+        : 'Shell approval: `ask`. Every shell command asks again. Saved to ~/.afot/config.json.',
   };
 }
 
@@ -194,6 +235,14 @@ export const permissionsCommand: SlashCommand = {
         handleAllowAll(input),
     },
     {
+      name: 'shell',
+      description:
+        'Shell approval mode. Usage: /permissions shell [workspace|ask|status]',
+      kind: CommandKind.BUILT_IN,
+      autoExecute: true,
+      action: (context, input): SlashCommandActionReturn => handleShell(input),
+    },
+    {
       name: 'revoke',
       description:
         'Revoke path grants for a directory. Usage: /permissions revoke <path>',
@@ -210,7 +259,7 @@ export const permissionsCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: `Please provide a subcommand for /permissions. Usage: /permissions trust [<directory-path>] | list | allow <path> | allow_all [on|off] | revoke <path>`,
+        content: `Please provide a subcommand for /permissions. Usage: /permissions trust [<directory-path>] | list | allow <path> | allow_all [on|off] | shell [workspace|ask|status] | revoke <path>`,
       };
     }
 
@@ -223,6 +272,9 @@ export const permissionsCommand: SlashCommand = {
     if (subcommand === 'allow_all' || subcommand === 'all') {
       return handleAllowAll(parts.slice(1).join(' '));
     }
+    if (subcommand === 'shell') {
+      return handleShell(parts.slice(1).join(' '));
+    }
     if (subcommand === 'revoke') {
       return handleRevoke(parts.slice(1).join(' '));
     }
@@ -230,7 +282,7 @@ export const permissionsCommand: SlashCommand = {
     return {
       type: 'message',
       messageType: 'error',
-      content: `Invalid subcommand for /permissions: ${subcommand}. Usage: /permissions trust [<directory-path>] | list | allow <path> | allow_all [on|off] | revoke <path>`,
+      content: `Invalid subcommand for /permissions: ${subcommand}. Usage: /permissions trust [<directory-path>] | list | allow <path> | allow_all [on|off] | shell [workspace|ask|status] | revoke <path>`,
     };
   },
 };

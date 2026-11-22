@@ -220,7 +220,15 @@ export interface AfotPermissionsConfig {
   allowAllPaths?: boolean;
   /** List of additional directory paths permitted for file access and shell execution */
   allowedPaths?: string[];
+  /**
+   * Shell approval mode. 'workspace' runs commands that stay inside the
+   * workspace without a prompt, but still asks for deletes, git reverts/resets,
+   * and anything touching paths outside the workspace. Default 'ask'.
+   */
+  shellApproval?: AfotShellApprovalMode;
 }
+
+export type AfotShellApprovalMode = 'ask' | 'workspace';
 
 export interface AfotConfig {
   providers?: Record<string, AfotProviderConfig>;
@@ -236,6 +244,8 @@ export interface AfotConfig {
   allowAllPaths?: boolean;
   /** Specific extra allowed directory paths */
   allowedPaths?: string[];
+  /** Shell approval mode ('ask' | 'workspace'). See AfotPermissionsConfig. */
+  shellApproval?: AfotShellApprovalMode;
   /** Structured permissions settings */
   permissions?: AfotPermissionsConfig;
   /** Name of the provider to use by default (matches a key in auth.json) */
@@ -1244,6 +1254,7 @@ let _runtimeAutoApprove: boolean | undefined;
 let _runtimeAutoApproveShell: boolean | undefined;
 let _runtimeAutoApproveWorkspaceWrites: boolean | undefined;
 let _runtimeAllowAllPaths: boolean | undefined;
+let _runtimeShellApproval: AfotShellApprovalMode | undefined;
 
 export function setAfotRuntimePermissions(
   perms: Partial<AfotPermissionsConfig>,
@@ -1255,6 +1266,8 @@ export function setAfotRuntimePermissions(
     _runtimeAutoApproveWorkspaceWrites = perms.autoApproveWorkspaceWrites;
   if (perms.allowAllPaths !== undefined)
     _runtimeAllowAllPaths = perms.allowAllPaths;
+  if (perms.shellApproval !== undefined)
+    _runtimeShellApproval = perms.shellApproval;
 }
 
 export function resetAfotRuntimePermissions(): void {
@@ -1262,6 +1275,7 @@ export function resetAfotRuntimePermissions(): void {
   _runtimeAutoApproveShell = undefined;
   _runtimeAutoApproveWorkspaceWrites = undefined;
   _runtimeAllowAllPaths = undefined;
+  _runtimeShellApproval = undefined;
 }
 
 /**
@@ -1343,6 +1357,36 @@ export function isAfotAutoApproveWorkspaceWritesEnabled(
   );
 }
 
+function parseShellApproval(v: unknown): AfotShellApprovalMode | undefined {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim().toLowerCase();
+  return t === 'workspace' || t === 'ask' ? t : undefined;
+}
+
+/**
+ * Returns the shell approval mode. Precedence: runtime (slash command) >
+ * AFOT_SHELL_APPROVAL env > config.json. Defaults to 'ask'.
+ */
+export function getAfotShellApprovalMode(
+  config: AfotConfig | null = readAfotConfig(),
+): AfotShellApprovalMode {
+  if (_runtimeShellApproval !== undefined) return _runtimeShellApproval;
+  const env = parseShellApproval(process.env['AFOT_SHELL_APPROVAL']);
+  if (env) return env;
+  return (
+    parseShellApproval(config?.permissions?.shellApproval) ??
+    parseShellApproval(config?.shellApproval) ??
+    'ask'
+  );
+}
+
+/** True when shell commands that stay inside the workspace skip the prompt. */
+export function isAfotWorkspaceShellEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  return getAfotShellApprovalMode(config) === 'workspace';
+}
+
 /**
  * Retrieves configured extra allowed paths.
  */
@@ -1409,6 +1453,9 @@ export function setAfotPermissions(
   }
   if (permissions.allowedPaths !== undefined) {
     config.allowedPaths = permissions.allowedPaths;
+  }
+  if (permissions.shellApproval !== undefined) {
+    config.shellApproval = permissions.shellApproval;
   }
   atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
   debugLogger.log('AFOT: Permissions configuration updated');
