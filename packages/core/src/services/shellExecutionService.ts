@@ -1584,6 +1584,7 @@ export class ShellExecutionService {
                 startLine,
                 endLine,
                 Boolean(shellExecutionConfig.showColor),
+                false,
               )
             : [];
           const finalOutput = headlessTerminal

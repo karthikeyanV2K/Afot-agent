@@ -141,9 +141,18 @@ export const ToolResultDisplay: React.FC<ToolResultDisplayProps> = ({
         />
       );
     } else if (typeof contentData === 'string' && !renderOutputAsMarkdown) {
+      const isNoOutputMessage =
+        contentData === '(Command completed with no output)';
       content = (
         <Box width={safeContentWidth} flexDirection="column">
-          <Text wrap="wrap" color={theme.text.primary}>
+          <Text
+            wrap="wrap"
+            color={
+              isNoOutputMessage ? theme.text.secondary : theme.text.primary
+            }
+            dimColor={isNoOutputMessage}
+            italic={isNoOutputMessage}
+          >
             {contentData}
           </Text>
         </Box>
@@ -231,9 +240,25 @@ export const ToolResultDisplay: React.FC<ToolResultDisplayProps> = ({
   };
 
   if (Array.isArray(resultDisplay)) {
-    const limit = maxLines ?? availableHeight ?? ACTIVE_SHELL_MAX_LINES;
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const data = resultDisplay as AnsiOutput;
+
+    const hasContent = data.some((line) =>
+      Array.isArray(line) &&
+      line.some((token) => token.text && token.text.trim().length > 0),
+    );
+
+    if (!hasContent) {
+      return (
+        <Box width={childWidth} flexDirection="column">
+          <Text color={theme.text.secondary} dimColor italic>
+            (Command completed with no output)
+          </Text>
+        </Box>
+      );
+    }
+
+    const limit = maxLines ?? availableHeight ?? ACTIVE_SHELL_MAX_LINES;
 
     // Calculate list height: if not constrained, use full data length.
     // If constrained (e.g. alternate buffer), limit to available height

@@ -17,6 +17,7 @@ export {
 } from './src/config/models.js';
 export {
   serializeTerminalToObject,
+  hasAnsiContent,
   type AnsiOutput,
   type AnsiLine,
   type AnsiToken,

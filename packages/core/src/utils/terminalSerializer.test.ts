@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { Terminal } from '@xterm/headless';
 import {
   serializeTerminalToObject,
+  hasAnsiContent,
   convertColorToHex,
   ColorMode,
 } from './terminalSerializer.js';
@@ -23,21 +24,45 @@ function writeToTerminal(terminal: Terminal, data: string): Promise<void> {
 
 describe('terminalSerializer', () => {
   describe('serializeTerminalToObject', () => {
-    it('should handle an empty terminal', () => {
+    it('should handle an empty terminal without cursor', () => {
       const terminal = new Terminal({
         cols: 80,
         rows: 24,
         allowProposedApi: true,
       });
-      const result = serializeTerminalToObject(terminal);
-      expect(result).toHaveLength(1);
-      result.forEach((line) => {
-        // Expect each line to be either empty or contain a single token with spaces
-        // Actually, the first cell will have inverse: true (cursor), so it will have multiple tokens
-        if (line.length > 0) {
-          expect(line[line.length - 1].text.trim()).toBe('');
-        }
+      const result = serializeTerminalToObject(
+        terminal,
+        undefined,
+        undefined,
+        true,
+        false,
+      );
+      expect(result).toHaveLength(0);
+      expect(hasAnsiContent(result)).toBe(false);
+    });
+
+    it('hasAnsiContent should correctly distinguish empty vs non-empty content', () => {
+      const terminal = new Terminal({
+        cols: 80,
+        rows: 24,
+        allowProposedApi: true,
       });
+      const withCursor = serializeTerminalToObject(terminal);
+      // withCursor has length 1 with an inverted whitespace cell, but no visible text
+      expect(hasAnsiContent(withCursor)).toBe(false);
+
+      expect(hasAnsiContent([])).toBe(false);
+      expect(hasAnsiContent(undefined)).toBe(false);
+      expect(
+        hasAnsiContent([
+          [{ text: '   ', bold: false, italic: false, underline: false, dim: false, inverse: true, isUninitialized: true, fg: '', bg: '' }],
+        ]),
+      ).toBe(false);
+      expect(
+        hasAnsiContent([
+          [{ text: 'hello', bold: false, italic: false, underline: false, dim: false, inverse: false, isUninitialized: false, fg: '', bg: '' }],
+        ]),
+      ).toBe(true);
     });
 
     it('should serialize a single line of text', async () => {

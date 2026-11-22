@@ -162,6 +162,7 @@ export function serializeTerminalToObject(
   startLine?: number,
   endLine?: number,
   includeColor = true,
+  includeCursor = true,
 ): AnsiOutput {
   const buffer = terminal.buffer.active;
   const cursorX = buffer.cursorX;
@@ -205,7 +206,8 @@ export function serializeTerminalToObject(
             underline: lastCell.isAttribute(Attribute.underline),
             dim: lastCell.isAttribute(Attribute.dim),
             inverse:
-              lastCell.isAttribute(Attribute.inverse) || lastCell.isCursor(),
+              lastCell.isAttribute(Attribute.inverse) ||
+              (includeCursor && lastCell.isCursor()),
             isUninitialized: lastCell.isUninitialized(),
             fg: includeColor
               ? convertColorToHex(lastCell.fg, lastCell.fgColorMode, defaultFg)
@@ -231,7 +233,9 @@ export function serializeTerminalToObject(
         italic: lastCell.isAttribute(Attribute.italic),
         underline: lastCell.isAttribute(Attribute.underline),
         dim: lastCell.isAttribute(Attribute.dim),
-        inverse: lastCell.isAttribute(Attribute.inverse) || lastCell.isCursor(),
+        inverse:
+          lastCell.isAttribute(Attribute.inverse) ||
+          (includeCursor && lastCell.isCursor()),
         isUninitialized: lastCell.isUninitialized(),
         fg: includeColor
           ? convertColorToHex(lastCell.fg, lastCell.fgColorMode, defaultFg)
@@ -254,7 +258,7 @@ export function serializeTerminalToObject(
     // A line is empty if all its tokens are marked as uninitialized and it has no cursor
     const isEmpty =
       lastLine.every((token) => token.isUninitialized && !token.inverse) &&
-      lineY !== absoluteCursorY;
+      (!includeCursor || lineY !== absoluteCursorY);
 
     if (isEmpty) {
       result.pop();
@@ -264,6 +268,19 @@ export function serializeTerminalToObject(
   }
 
   return result;
+}
+
+/**
+ * Checks whether an AnsiOutput contains any visible non-whitespace content.
+ */
+export function hasAnsiContent(ansiOutput?: AnsiOutput): boolean {
+  if (!ansiOutput || !Array.isArray(ansiOutput) || ansiOutput.length === 0) {
+    return false;
+  }
+  return ansiOutput.some((line) =>
+    Array.isArray(line) &&
+    line.some((token) => token.text && token.text.trim().length > 0),
+  );
 }
 
 // ANSI color palette from https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit

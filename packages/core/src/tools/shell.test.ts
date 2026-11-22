@@ -1458,6 +1458,23 @@ EOF`;
 
       const result = await promise;
       expect(result.llmContent).toContain('Exit Code: 1');
+      expect(result.returnDisplay).toBe('Command exited with code: 1');
+    });
+
+    it('should return "(Command completed with no output)" when command succeeds with empty output', async () => {
+      const invocation = shellTool.build({
+        command: 'true',
+      });
+      const promise = invocation.execute({ abortSignal: mockAbortSignal });
+
+      resolveShellExecution({ exitCode: 0, output: '', ansiOutput: [] });
+
+      const result = await promise;
+      expect(result.returnDisplay).toBe('(Command completed with no output)');
+      expect(result.display?.result).toEqual({
+        type: 'text',
+        text: '(Command completed with no output)',
+      });
     });
 
     it('should not include Error when there is no process error', async () => {

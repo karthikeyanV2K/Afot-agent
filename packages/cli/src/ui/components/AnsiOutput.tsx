@@ -56,20 +56,25 @@ export const AnsiOutputText: React.FC<AnsiOutputProps> = ({
 export const AnsiLineText: React.FC<{ line: AnsiLine }> = ({ line }) => (
   <Text>
     {line.length > 0
-      ? line.map((token: AnsiToken, tokenIndex: number) => (
-          <Text
-            key={tokenIndex}
-            color={token.fg}
-            backgroundColor={token.bg}
-            inverse={token.inverse}
-            dimColor={token.dim}
-            bold={token.bold}
-            italic={token.italic}
-            underline={token.underline}
-          >
-            {token.text}
-          </Text>
-        ))
+      ? line.map((token: AnsiToken, tokenIndex: number) => {
+          const shouldInverse =
+            token.inverse &&
+            !(token.isUninitialized && token.text.trim().length === 0);
+          return (
+            <Text
+              key={tokenIndex}
+              color={token.fg}
+              backgroundColor={token.bg}
+              inverse={shouldInverse}
+              dimColor={token.dim}
+              bold={token.bold}
+              italic={token.italic}
+              underline={token.underline}
+            >
+              {token.text}
+            </Text>
+          );
+        })
       : null}
   </Text>
 );

@@ -33,7 +33,7 @@ import {
   type ShellOutputEvent,
 } from '../services/shellExecutionService.js';
 import { formatBytes } from '../utils/formatters.js';
-import type { AnsiOutput } from '../utils/terminalSerializer.js';
+import { type AnsiOutput, hasAnsiContent } from '../utils/terminalSerializer.js';
 import {
   getCommandRoots,
   initializeShellParsers,
@@ -1111,10 +1111,10 @@ export class ShellToolInvocation extends BaseToolInvocation<
           } else {
             returnDisplay = cancelMsg;
           }
-        } else if (result.output.trim() || result.ansiOutput) {
+        } else if (result.output.trim() || hasAnsiContent(result.ansiOutput)) {
           returnDisplay =
-            result.ansiOutput && result.ansiOutput.length > 0
-              ? result.ansiOutput
+            hasAnsiContent(result.ansiOutput)
+              ? (result.ansiOutput as AnsiOutput)
               : result.output;
         } else {
           if (result.signal) {
@@ -1123,9 +1123,9 @@ export class ShellToolInvocation extends BaseToolInvocation<
             returnDisplay = `Command failed: ${getErrorMessage(result.error)}`;
           } else if (result.exitCode !== null && result.exitCode !== 0) {
             returnDisplay = `Command exited with code: ${result.exitCode}`;
+          } else {
+            returnDisplay = '(Command completed with no output)';
           }
-          // If output is empty and command succeeded (code 0, no error/signal/abort),
-          // returnDisplay will remain empty, which is fine.
         }
       }
 
@@ -1319,8 +1319,9 @@ export class ShellToolInvocation extends BaseToolInvocation<
           result:
             typeof returnDisplay === 'string'
               ? { type: 'text', text: returnDisplay }
-              : // TODO: Add support for terminal display type (AnsiOutput)
-                undefined,
+              : result.output.trim()
+                ? { type: 'text', text: result.output }
+                : undefined,
         },
         returnDisplay,
         data,
