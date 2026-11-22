@@ -177,4 +177,27 @@ describe('ThinkingMessage', () => {
     await expect(renderResult).toMatchSvgSnapshot();
     renderResult.unmount();
   });
+
+  it('renders - Thought header with formatted duration', async () => {
+    const renderResult = await renderWithProviders(
+      <ThinkingMessage
+        thought={{
+          subject: 'All v1 validation passes.',
+          description:
+            'All v1 validation passes.\n\nNext: update docs/VEILPEER-2.md with relay/DCUtR discovery limitations.\n\nLet me read the whole doc to determine where to add these.',
+        }}
+        durationMs={916}
+        terminalWidth={80}
+      />,
+    );
+    await renderResult.waitUntilReady();
+
+    const output = renderResult.lastFrame();
+    expect(output).toContain('- Thought');
+    expect(output).toContain('916ms');
+    expect(output).toContain('│');
+    expect(output).toContain('All v1 validation passes.');
+    expect(output).toContain('Next: update docs/VEILPEER-2.md');
+    renderResult.unmount();
+  });
 });

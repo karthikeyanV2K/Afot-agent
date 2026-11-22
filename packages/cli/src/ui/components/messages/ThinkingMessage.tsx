@@ -15,13 +15,30 @@ interface ThinkingMessageProps {
   thought: ThoughtSummary;
   terminalWidth: number;
   isFirstThinking?: boolean;
+  durationMs?: number;
 }
 
 const THINKING_LEFT_PADDING = 1;
 
+function formatDuration(durationMs?: number): string | undefined {
+  if (durationMs === undefined || durationMs === null || isNaN(durationMs)) {
+    return undefined;
+  }
+  if (durationMs < 1000) {
+    return `${Math.max(1, Math.round(durationMs))}ms`;
+  }
+  const totalSeconds = Math.round(durationMs / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}m ${secs}s`;
+}
+
 function normalizeThoughtLines(thought: ThoughtSummary): string[] {
-  const subject = normalizeEscapedNewlines(thought.subject).trim();
-  const description = normalizeEscapedNewlines(thought.description).trim();
+  const subject = normalizeEscapedNewlines(thought.subject || '').trim();
+  const description = normalizeEscapedNewlines(thought.description || '').trim();
 
   const isNoise = (text: string) => {
     const trimmed = text.trim();
@@ -31,7 +48,9 @@ function normalizeThoughtLines(thought: ThoughtSummary): string[] {
   const lines: string[] = [];
 
   if (subject && !isNoise(subject)) {
-    lines.push(subject);
+    if (!description || !description.includes(subject)) {
+      lines.push(subject);
+    }
   }
 
   if (description) {
@@ -53,13 +72,57 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({
   thought,
   terminalWidth,
   isFirstThinking,
+  durationMs,
 }) => {
   const fullLines = useMemo(() => normalizeThoughtLines(thought), [thought]);
+  const durationStr = useMemo(() => formatDuration(durationMs), [durationMs]);
 
   if (fullLines.length === 0) {
     return null;
   }
 
+  // Modern AFOT / AGY CLI style with duration header
+  if (durationStr) {
+    return (
+      <Box width={terminalWidth} flexDirection="column">
+        <Box flexDirection="row">
+          <Text color="#d97706" bold>
+            - Thought
+          </Text>
+          <Text color={theme.text.secondary}> · {durationStr}</Text>
+        </Box>
+
+        <Box
+          marginLeft={THINKING_LEFT_PADDING}
+          paddingLeft={1}
+          borderStyle="single"
+          borderLeft={true}
+          borderRight={false}
+          borderTop={false}
+          borderBottom={false}
+          borderColor={theme.text.secondary}
+          flexDirection="column"
+        >
+          <Text> </Text>
+          {fullLines.map((line, index) => {
+            if (!line.trim()) {
+              return <Text key={`thought-line-${index}`}> </Text>;
+            }
+            return (
+              <Text
+                key={`thought-line-${index}`}
+                color={theme.text.secondary}
+              >
+                {line}
+              </Text>
+            );
+          })}
+        </Box>
+      </Box>
+    );
+  }
+
+  // Fallback style for legacy snapshots when no duration is specified
   return (
     <Box width={terminalWidth} flexDirection="column">
       {isFirstThinking && (

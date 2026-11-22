@@ -93,6 +93,7 @@ export const HistoryItemDisplay: React.FC<HistoryItemDisplayProps> = ({
       {itemForDisplay.type === 'thinking' && inlineThinkingMode !== 'off' && (
         <ThinkingMessage
           thought={itemForDisplay.thought}
+          durationMs={itemForDisplay.durationMs}
           terminalWidth={terminalWidth}
           isFirstThinking={isFirstThinking}
         />

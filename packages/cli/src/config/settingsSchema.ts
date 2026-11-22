@@ -588,7 +588,7 @@ const SETTINGS_SCHEMA = {
         label: 'Inline Thinking',
         category: 'UI',
         requiresRestart: false,
-        default: 'off',
+        default: 'full',
         description: 'Display model thinking inline: off or full.',
         showInDialog: true,
         options: [

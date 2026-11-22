@@ -321,6 +321,7 @@ export interface ChatDetail {
 export type HistoryItemThinking = HistoryItemBase & {
   type: 'thinking';
   thought: ThoughtSummary;
+  durationMs?: number;
 };
 
 export type HistoryItemHint = HistoryItemBase & {

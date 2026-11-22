@@ -798,7 +798,7 @@ Directives:
     // Reasoning is a *thought*, not part of the answer: keep it out of the
     // visible text (and the conversation history). Only if the provider put the
     // whole answer into the reasoning field do we fall back to showing it.
-    if (contentText && reasoningText) {
+    if (reasoningText) {
       parts.push({ text: reasoningText, thought: true });
     }
     const rawContent =
@@ -1686,7 +1686,7 @@ Directives:
 
           const textDelta = delta?.content || undefined;
           const reasoningDelta = extractReasoning(delta);
-          if (reasoningDelta && !textDelta) {
+          if (reasoningDelta) {
             accumulatedReasoning += reasoningDelta;
             const lines = accumulatedReasoning
               .split('\n')

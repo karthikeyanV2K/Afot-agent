@@ -71,7 +71,6 @@ import type {
 import { type Part, type PartListUnion, FinishReason } from '@google/genai';
 import type {
   HistoryItem,
-  HistoryItemThinking,
   HistoryItemWithoutId,
   HistoryItemToolGroup,
   HistoryItemInfo,
@@ -279,6 +278,7 @@ export const useGeminiStream = (
     useStateAndRef<ThoughtSummary | null>(null);
   const [pendingHistoryItem, pendingHistoryItemRef, setPendingHistoryItem] =
     useStateAndRef<HistoryItemWithoutId | null>(null);
+  const thoughtStartTimeRef = useRef<number | null>(null);
 
   const [lastGeminiActivityTime, setLastGeminiActivityTime] =
     useState<number>(0);
@@ -1007,6 +1007,7 @@ export const useGeminiStream = (
         }
       }
       setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
 
       // If it was a full cancellation, add the info message now.
       // Otherwise, we let handleCompletedTools figure out the next step,
@@ -1289,16 +1290,21 @@ export const useGeminiStream = (
 
   const handleThoughtEvent = useCallback(
     (eventValue: ThoughtSummary, _userMessageTimestamp: number) => {
+      if (thoughtStartTimeRef.current === null) {
+        thoughtStartTimeRef.current = Date.now();
+      }
+      const durationMs = Date.now() - thoughtStartTimeRef.current;
       setThought(eventValue);
 
-      if (getInlineThinkingMode(settings) === 'full') {
-        addItem({
+      if (getInlineThinkingMode(settings) !== 'off') {
+        setPendingHistoryItem({
           type: 'thinking',
           thought: eventValue,
-        } as HistoryItemThinking);
+          durationMs,
+        });
       }
     },
-    [addItem, settings, setThought],
+    [settings, setThought, setPendingHistoryItem],
   );
 
   const handleUserCancelledEvent = useCallback(
@@ -1327,6 +1333,7 @@ export const useGeminiStream = (
           addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         }
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       addItem(
         { type: MessageType.INFO, text: 'User cancelled the request.' },
@@ -1349,6 +1356,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       maybeAddSuppressedToolErrorNote(userMessageTimestamp);
       addItem(
@@ -1386,6 +1394,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       maybeAddSuppressedToolErrorNote(userMessageTimestamp);
 
@@ -1442,6 +1451,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       addItem({ type: MessageType.INFO, text }, userMessageTimestamp);
     },
@@ -1505,6 +1515,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
 
       const limit = tokenLimit(config.getModel());
@@ -1572,6 +1583,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       addItem(
         {
@@ -1594,6 +1606,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       addItem(
         {
@@ -1633,6 +1646,7 @@ export const useGeminiStream = (
       if (pendingHistoryItemRef.current) {
         addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
       }
       addItem(
         {
@@ -1674,9 +1688,18 @@ export const useGeminiStream = (
       for await (const event of stream) {
         if (
           event.type !== ServerGeminiEventType.Thought &&
+          pendingHistoryItemRef.current?.type === 'thinking'
+        ) {
+          addItem(pendingHistoryItemRef.current, userMessageTimestamp);
+          setPendingHistoryItem(null);
+        }
+
+        if (
+          event.type !== ServerGeminiEventType.Thought &&
           thoughtRef.current !== null
         ) {
           setThought(null);
+          thoughtStartTimeRef.current = null;
         }
 
         switch (event.type) {
@@ -1776,6 +1799,7 @@ export const useGeminiStream = (
         if (pendingHistoryItemRef.current) {
           addItem(pendingHistoryItemRef.current, userMessageTimestamp);
           setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
         }
         const schedulePromise = Promise.resolve(
           scheduleToolCalls(toolCallRequests, signal),
@@ -1952,6 +1976,7 @@ export const useGeminiStream = (
               if (pendingHistoryItemRef.current) {
                 addItem(pendingHistoryItemRef.current, userMessageTimestamp);
                 setPendingHistoryItem(null);
+      thoughtStartTimeRef.current = null;
               }
               if (loopDetectedRef.current) {
                 loopDetectedRef.current = false;
