@@ -37,7 +37,9 @@ import {
   isEcoModeActive,
   isAfotFailoverEnabled,
   isAfotEmbeddedToolParsingEnabled,
+  setAfotProviderKey,
 } from './afotAuthStorage.js';
+import { ensureFreshClineToken } from './afotClineBridge.js';
 import { OPENCODE_FREE_MODELS } from './opencodeConsoleAuth.js';
 import { debugLogger } from '../utils/debugLogger.js';
 import { TerminalQuotaError } from '../utils/googleQuotaErrors.js';
@@ -235,12 +237,14 @@ function detectConversationalTurn(rawContents: unknown): ConversationalDetection
 
 export class AfotOpenAIContentGenerator implements ContentGenerator {
   private client: OpenAI;
+  private currentKey: string;
   private model: string;
   private readonly provider: AfotResolvedProvider;
   providerName: string;
 
   constructor(provider: AfotResolvedProvider, model: string) {
     this.provider = provider;
+    this.currentKey = provider.key;
     this.client = new OpenAI({
       apiKey: provider.key,
       baseURL: provider.baseUrl,
@@ -1064,6 +1068,11 @@ Directives:
       );
     }
 
+    if (status === 401 && /^cline/.test(provName) && err instanceof Error) {
+      err.message +=
+        ' [AFOT: Cline token was rejected. Open Cline (VS Code or `cline auth`) once to re-authenticate, then retry; AFOT re-reads the token automatically.]';
+    }
+
     throw err;
   }
 
@@ -1409,6 +1418,29 @@ Directives:
     };
   }
 
+  /** Cline tokens expire/rotate outside AFOT; re-sync before each request. */
+  private async syncClineToken(): Promise<void> {
+    if (this.providerName !== 'cline-gui' && this.providerName !== 'cline-cli') {
+      return;
+    }
+    const { token, changed } = await ensureFreshClineToken(
+      this.providerName,
+      this.currentKey,
+    );
+    if (!changed) return;
+    this.currentKey = token;
+    this.client = new OpenAI({
+      apiKey: token,
+      baseURL: this.provider.baseUrl,
+      defaultHeaders: this.provider.headers,
+    });
+    try {
+      setAfotProviderKey(this.providerName, token);
+    } catch (e) {
+      debugLogger.log(`Could not persist refreshed Cline token: ${e}`);
+    }
+  }
+
   // ─── ContentGenerator interface ────────────────────────────────────────────
 
   async generateContent(
@@ -1416,6 +1448,7 @@ Directives:
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<GenerateContentResponse> {
+    await this.syncClineToken();
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
 
@@ -1511,6 +1544,7 @@ Directives:
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<AsyncGenerator<GenerateContentResponse>> {
+    await this.syncClineToken();
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
 

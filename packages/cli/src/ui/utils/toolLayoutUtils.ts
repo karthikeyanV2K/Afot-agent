@@ -8,7 +8,10 @@ import {
   ACTIVE_SHELL_MAX_LINES,
   COMPLETED_SHELL_MAX_LINES,
 } from '../constants.js';
-import { CoreToolCallStatus } from '@google/gemini-cli-core';
+import {
+  CoreToolCallStatus,
+  isAfotFullOutputEnabled,
+} from '@google/gemini-cli-core';
 
 /**
  * Constants used for calculating available height for tool results.
@@ -91,6 +94,15 @@ export function calculateShellMaxLines(options: {
 
   // 1. If the user explicitly requested expansion (unconstrained), remove all caps.
   if (!constrainHeight && isExpandable) {
+    return undefined;
+  }
+
+  // 1b. AFOT full-output mode: finished shell output is never truncated.
+  // Running commands keep the live-area cap so the terminal doesn't flicker.
+  if (
+    status !== CoreToolCallStatus.Executing &&
+    isAfotFullOutputEnabled()
+  ) {
     return undefined;
   }
 

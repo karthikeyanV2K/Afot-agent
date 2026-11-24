@@ -238,6 +238,8 @@ export interface AfotConfig {
   autoApprove?: boolean;
   /** Auto-approve shell execution commands */
   autoApproveShell?: boolean;
+  /** Show tool/shell output in full (no "N lines hidden"). Default true. */
+  fullOutput?: boolean;
   /** Auto-approve workspace file edits and writes */
   autoApproveWorkspaceWrites?: boolean;
   /** Allow access to any directory outside current working directory without prompts */
@@ -1378,6 +1380,18 @@ export function getAfotShellApprovalMode(
     parseShellApproval(config?.shellApproval) ??
     'ask'
   );
+}
+
+/**
+ * True (default) when tool/shell output is rendered in full.
+ * Precedence: env AFOT_FULL_OUTPUT (1/0) > config.fullOutput > true.
+ */
+export function isAfotFullOutputEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  const env = envFlag('AFOT_FULL_OUTPUT');
+  if (env !== undefined) return env;
+  return config?.fullOutput ?? true;
 }
 
 /** True when shell commands that stay inside the workspace skip the prompt. */

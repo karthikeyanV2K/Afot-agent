@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   calculateToolContentMaxLines,
   calculateShellMaxLines,
@@ -21,6 +21,15 @@ import {
 } from '../constants.js';
 
 describe('toolLayoutUtils', () => {
+  const prevFull = process.env['AFOT_FULL_OUTPUT'];
+  beforeEach(() => {
+    process.env['AFOT_FULL_OUTPUT'] = '0';
+  });
+  afterEach(() => {
+    if (prevFull === undefined) delete process.env['AFOT_FULL_OUTPUT'];
+    else process.env['AFOT_FULL_OUTPUT'] = prevFull;
+  });
+
   describe('calculateToolContentMaxLines', () => {
     interface CalculateToolContentMaxLinesTestCase {
       desc: string;
@@ -212,5 +221,36 @@ describe('toolLayoutUtils', () => {
       const result = calculateShellMaxLines(options);
       expect(result).toBe(expected);
     });
+  });
+});
+
+describe('calculateShellMaxLines full output', () => {
+  const base = {
+    isAlternateBuffer: false,
+    isThisShellFocused: false,
+    availableTerminalHeight: 30,
+    constrainHeight: true,
+    isExpandable: false,
+  };
+  afterEach(() => {
+    delete process.env['AFOT_FULL_OUTPUT'];
+  });
+  it('does not cap completed shell output by default', () => {
+    delete process.env['AFOT_FULL_OUTPUT'];
+    expect(
+      calculateShellMaxLines({ ...base, status: CoreToolCallStatus.Success }),
+    ).toBeUndefined();
+  });
+  it('keeps the live cap while executing', () => {
+    delete process.env['AFOT_FULL_OUTPUT'];
+    expect(
+      calculateShellMaxLines({ ...base, status: CoreToolCallStatus.Executing }),
+    ).toBeDefined();
+  });
+  it('caps completed output when AFOT_FULL_OUTPUT=0', () => {
+    process.env['AFOT_FULL_OUTPUT'] = '0';
+    expect(
+      calculateShellMaxLines({ ...base, status: CoreToolCallStatus.Success }),
+    ).toBeDefined();
   });
 });

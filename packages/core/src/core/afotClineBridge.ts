@@ -345,6 +345,48 @@ export async function refreshClineAccountToken(
   }
 }
 
+const lastRefreshAttempt = new Map<string, number>();
+
+/**
+ * Returns the freshest known token for a Cline provider ("cline-gui"/"cline-cli").
+ * AFOT copies the token into auth.json once, so it goes stale when Cline itself
+ * renews it or it expires. Re-read the source of truth, and refresh if expired
+ * (at most once per minute per account). Never throws.
+ */
+export async function ensureFreshClineToken(
+  providerId: string,
+  currentKey: string,
+  deps: {
+    discover?: () => ClineDiscoveredAccount[];
+    refresh?: typeof refreshClineAccountToken;
+    now?: () => number;
+  } = {},
+): Promise<{ token: string; changed: boolean }> {
+  const discover = deps.discover ?? discoverClineAccounts;
+  const refresh = deps.refresh ?? refreshClineAccountToken;
+  const now = (deps.now ?? Date.now)();
+  try {
+    let acct = discover().find((a) => a.id === providerId);
+    if (!acct || !acct.token) return { token: currentKey, changed: false };
+    const nearExpiry = acct.expiresAt > 0 && now > acct.expiresAt - 60_000;
+    const last = lastRefreshAttempt.get(providerId) ?? 0;
+    if (nearExpiry && acct.refreshToken && now - last > 60_000) {
+      lastRefreshAttempt.set(providerId, now);
+      const r = await refresh(providerId);
+      if (r.success && r.account?.token) acct = r.account;
+    }
+    return { token: acct.token, changed: acct.token !== currentKey };
+  } catch (e) {
+    debugLogger.log(`ensureFreshClineToken failed: ${e}`);
+    return { token: currentKey, changed: false };
+  }
+}
+
+/** Clears the refresh throttle (tests). */
+export function resetClineRefreshThrottle(): void {
+  lastRefreshAttempt.clear();
+}
+
 /**
  * Activates a Cline or Kilo account as AFOT's active provider and configures its model.
  */
