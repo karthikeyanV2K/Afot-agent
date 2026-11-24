@@ -229,3 +229,13 @@ AFOT CLI is a fork of [Gemini CLI](https://github.com/google-gemini/gemini-cli) 
 ## 📄 License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+## Live monitor
+
+`/monitor off|compact|expanded` (or `AFOT_MONITOR`, or `monitor` in `~/.afot/config.json`; default off) shows a timeline above the input:
+
+```
+●──●──◉──○──○      2/5
+```
+
+`●` done, `◉` running, `○` pending, `✗` failed (line stops), `⚠` waiting for approval. Expanded adds the step list and a request log (time, model, status, ms, tokens). Metadata only: no prompts, arguments or keys are stored.
