@@ -10,6 +10,8 @@ import { Box, Text } from 'ink';
 import {
   getAfotMonitorMode,
   getMonitorRequests,
+  recordMonitorPoll,
+  recordMonitorRequest,
   subscribeMonitor,
   type MonitorRequest,
 } from '@google/gemini-cli-core';
@@ -25,6 +27,11 @@ import {
   type MonitorStep,
   type StepState,
 } from '../../utils/monitorTimeline.js';
+import {
+  formatElapsed,
+  pickRunners,
+  pollStatus,
+} from '../../utils/monitorRunner.js';
 import { theme } from '../../semantic-colors.js';
 
 const COLOR: Record<StepState, string> = {
@@ -51,6 +58,7 @@ function useMonitorRequests(): MonitorRequest[] {
   const [rows, setRows] = useState<MonitorRequest[]>(() =>
     getMonitorRequests(),
   );
+  const [, setTick] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     // Throttle to ~4 fps so a chatty stream cannot make the TUI flicker.
@@ -59,6 +67,7 @@ function useMonitorRequests(): MonitorRequest[] {
       timer.current = setTimeout(() => {
         timer.current = undefined;
         setRows(getMonitorRequests());
+        setTick((t) => t + 1); // re-read the monitor mode too
       }, 250);
     });
     return () => {
@@ -71,26 +80,81 @@ function useMonitorRequests(): MonitorRequest[] {
 
 export const MonitorPanel: React.FC = () => {
   const mode = getAfotMonitorMode();
-  const { pendingHistoryItems, terminalWidth } = useUIState();
+  const { pendingHistoryItems, terminalWidth, backgroundTasks } = useUIState();
   const requests = useMonitorRequests();
-
-  const live = useMemo(
-    () => buildSteps(getAllToolCalls(pendingHistoryItems)),
+  const toolCalls = useMemo(
+    () => getAllToolCalls(pendingHistoryItems),
     [pendingHistoryItems],
   );
+
+  const live = useMemo(() => buildSteps(toolCalls), [toolCalls]);
+  const runners = useMemo(
+    () => pickRunners(toolCalls, backgroundTasks, 5),
+    [toolCalls, backgroundTasks],
+  );
+
+  // Elapsed time per runner, from when the panel first saw it running.
+  const startedAt = useRef(new Map<string, number>());
+  for (const r of runners) {
+    if (r.status === 'running' && !startedAt.current.has(r.key)) {
+      startedAt.current.set(r.key, Date.now());
+    }
+  }
+
+  // Log tool state changes once each.
+  const loggedState = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (mode === 'off') return;
+    for (const st of live) {
+      if (st.state === 'pending') continue;
+      if (loggedState.current.get(st.id) === st.state) continue;
+      loggedState.current.set(st.id, st.state);
+      recordMonitorRequest({
+        type: 'tool',
+        target: st.label,
+        status: st.state,
+      });
+    }
+  }, [live, mode]);
+
+  // Poll running processes every 2s; a row is logged only when status changes.
+  const runnersRef = useRef(runners);
+  runnersRef.current = runners;
+  const activeCount = runners.filter((r) => r.status === 'running').length;
+  useEffect(() => {
+    if (mode === 'off' || activeCount === 0) return;
+    const poll = () => {
+      for (const r of runnersRef.current) {
+        recordMonitorPoll(
+          r.pid !== undefined ? `pid ${r.pid}` : r.command.slice(0, 24),
+          pollStatus(r),
+        );
+      }
+    };
+    poll();
+    const t = setInterval(poll, 2000);
+    return () => clearInterval(t);
+  }, [mode, activeCount]);
   // Keep the last turn visible after it finishes.
   const lastSteps = useRef<MonitorStep[]>([]);
   if (live.length > 0) lastSteps.current = live;
   const steps = live.length > 0 ? live : lastSteps.current;
 
   if (mode === 'off') return null;
-  if (steps.length === 0 && requests.length === 0) return null;
+  if (steps.length === 0 && requests.length === 0 && runners.length === 0) {
+    return null;
+  }
 
   const { done, total } = progressCounts(steps);
   const active = steps.find(
     (s) => s.state === 'running' || s.state === 'waiting',
   );
   const width = Math.max(20, terminalWidth - 24);
+  const elapsed = (key: string): string => {
+    const t = startedAt.current.get(key);
+    return t === undefined ? '' : formatElapsed(Date.now() - t);
+  };
+  const main = runners.find((r) => r.status === 'running') ?? runners[0];
   const line = renderTimeline(steps, width);
 
   return (
@@ -113,10 +177,12 @@ export const MonitorPanel: React.FC = () => {
       </Box>
       {mode === 'compact' ? (
         <Text color={theme.text.secondary} wrap="truncate-end">
-          {active
-            ? `${STATE_GLYPH[active.state]} ${clip(active.label, terminalWidth - 30)}`
-            : 'idle'}
-          {'   /monitor expanded for details'}
+          {main && main.status === 'running'
+            ? `▸ running: ${clip(main.command, Math.max(10, terminalWidth - 50))}${main.pid !== undefined ? `  pid ${main.pid}` : ''}  ${elapsed(main.key)}`
+            : active
+              ? `${STATE_GLYPH[active.state]} ${clip(active.label, terminalWidth - 30)}`
+              : 'idle'}
+          {'   Alt+T more'}
         </Text>
       ) : (
         <Box flexDirection="column" marginTop={1}>
@@ -128,6 +194,44 @@ export const MonitorPanel: React.FC = () => {
               {STATE_CHECK[s.state]} {clip(s.label, terminalWidth - 8)}
             </Text>
           ))}
+          {runners.length > 0 && (
+            <Box marginTop={1} flexDirection="column">
+              <Text bold color={theme.text.accent}>
+                COMMAND RUNNER
+              </Text>
+              {runners.slice(0, 2).map((r) => (
+                <Box key={r.key} flexDirection="column">
+                  <Text
+                    color={
+                      r.status === 'running'
+                        ? theme.text.accent
+                        : r.exitCode === 0
+                          ? theme.status.success
+                          : theme.status.error
+                    }
+                    wrap="truncate-end"
+                  >
+                    {r.pid !== undefined ? `PID ${r.pid}  ` : ''}
+                    {clip(r.command, Math.max(10, terminalWidth - 40))}
+                    {'  '}
+                    {r.status === 'running'
+                      ? `${r.source}  ${elapsed(r.key)}`
+                      : `exited ${r.exitCode ?? '?'}`}
+                  </Text>
+                  {r.lines.map((l, i) => (
+                    <Text
+                      key={i}
+                      color={theme.text.secondary}
+                      wrap="truncate-end"
+                    >
+                      {'> '}
+                      {l}
+                    </Text>
+                  ))}
+                </Box>
+              ))}
+            </Box>
+          )}
           <Box marginTop={1} flexDirection="column">
             <Text bold color={theme.text.accent}>
               REQUESTS

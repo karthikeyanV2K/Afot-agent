@@ -39,6 +39,7 @@
  *   3. First entry in auth.json
  */
 
+import { notifyMonitorChange } from './afotMonitor.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -1401,11 +1402,25 @@ let _runtimeMonitor: AfotMonitorMode | undefined;
 
 export function setAfotMonitorRuntime(mode: AfotMonitorMode | undefined): void {
   _runtimeMonitor = mode;
+  notifyMonitorChange();
+}
+
+/** off -> compact -> expanded -> off. Persisting is best-effort. */
+export function cycleAfotMonitorMode(): AfotMonitorMode {
+  const order: AfotMonitorMode[] = ['off', 'compact', 'expanded'];
+  const next = order[(order.indexOf(getAfotMonitorMode()) + 1) % order.length]!;
+  try {
+    setAfotMonitorMode(next);
+  } catch {
+    setAfotMonitorRuntime(next);
+  }
+  return next;
 }
 
 /** Sets the monitor mode for this session and persists it to config.json. */
 export function setAfotMonitorMode(mode: AfotMonitorMode): void {
   _runtimeMonitor = mode;
+  notifyMonitorChange();
   ensureAfotDir();
   const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
   config.monitor = mode;
