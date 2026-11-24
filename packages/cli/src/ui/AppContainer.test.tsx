@@ -378,6 +378,8 @@ describe('AppContainer State Management', () => {
   };
 
   beforeEach(() => {
+    // These tests cover the legacy constrained-output flow.
+    process.env['AFOT_FULL_OUTPUT'] = '0';
     persistentStateMock.reset();
     vi.clearAllMocks();
 
@@ -556,6 +558,7 @@ describe('AppContainer State Management', () => {
   });
 
   afterEach(() => {
+    delete process.env['AFOT_FULL_OUTPUT'];
     cleanup();
     vi.restoreAllMocks();
   });

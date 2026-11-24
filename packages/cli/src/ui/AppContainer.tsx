@@ -89,6 +89,7 @@ import {
   ApiKeyUpdatedEvent,
   LegacyAgentProtocol,
   type InjectionSource,
+  isAfotFullOutputEnabled,
 } from '@google/gemini-cli-core';
 import { validateAuthMethod } from '../config/auth.js';
 import process from 'node:process';
@@ -438,7 +439,11 @@ export const AppContainer = (props: AppContainerProps) => {
   );
 
   const [newAgents, setNewAgents] = useState<AgentDefinition[] | null>(null);
-  const [constrainHeight, setConstrainHeight] = useState<boolean>(true);
+  // Full output (default) means tool output starts unconstrained.
+  const defaultConstrainHeight = !isAfotFullOutputEnabled();
+  const [constrainHeight, setConstrainHeight] = useState<boolean>(
+    defaultConstrainHeight,
+  );
   const [expandHintTrigger, triggerExpandHint] = useTimedMessage<boolean>(
     EXPAND_HINT_DURATION_MS,
   );
@@ -1586,8 +1591,8 @@ export const AppContainer = (props: AppContainerProps) => {
       reset();
       // Explicitly hide the expansion hint and clear its x-second timer when a new turn begins.
       triggerExpandHint(null);
-      if (!constrainHeight) {
-        setConstrainHeight(true);
+      if (constrainHeight !== defaultConstrainHeight) {
+        setConstrainHeight(defaultConstrainHeight);
         if (!isAlternateBuffer) {
           refreshStatic();
         }
@@ -2204,6 +2209,7 @@ export const AppContainer = (props: AppContainerProps) => {
 
       if (
         !constrainHeight &&
+        defaultConstrainHeight &&
         (keyMatchers[Command.SHOW_MORE_LINES](key) ||
           (keyMatchers[Command.ESCAPE](key) && !dialogsVisible))
       ) {
