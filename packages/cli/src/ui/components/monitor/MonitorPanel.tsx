@@ -16,7 +16,10 @@ import {
   type MonitorRequest,
 } from '@google/gemini-cli-core';
 import { useUIState } from '../../contexts/UIStateContext.js';
-import { getAllToolCalls } from '../../utils/historyUtils.js';
+import {
+  getAllToolCalls,
+  getLastTurnToolCalls,
+} from '../../utils/historyUtils.js';
 import {
   buildSteps,
   clip,
@@ -24,7 +27,6 @@ import {
   renderTimeline,
   STATE_CHECK,
   STATE_GLYPH,
-  type MonitorStep,
   type StepState,
 } from '../../utils/monitorTimeline.js';
 import {
@@ -80,14 +82,19 @@ function useMonitorRequests(): MonitorRequest[] {
 
 export const MonitorPanel: React.FC = () => {
   const mode = getAfotMonitorMode();
-  const { pendingHistoryItems, terminalWidth, backgroundTasks } = useUIState();
+  const { pendingHistoryItems, history, terminalWidth, backgroundTasks } =
+    useUIState();
   const requests = useMonitorRequests();
   const toolCalls = useMemo(
     () => getAllToolCalls(pendingHistoryItems),
     [pendingHistoryItems],
   );
 
-  const live = useMemo(() => buildSteps(toolCalls), [toolCalls]);
+  const turnCalls = useMemo(
+    () => getLastTurnToolCalls(history ?? [], pendingHistoryItems),
+    [history, pendingHistoryItems],
+  );
+  const steps = useMemo(() => buildSteps(turnCalls), [turnCalls]);
   const runners = useMemo(
     () => pickRunners(toolCalls, backgroundTasks, 5),
     [toolCalls, backgroundTasks],
@@ -105,7 +112,7 @@ export const MonitorPanel: React.FC = () => {
   const loggedState = useRef(new Map<string, string>());
   useEffect(() => {
     if (mode === 'off') return;
-    for (const st of live) {
+    for (const st of steps) {
       if (st.state === 'pending') continue;
       if (loggedState.current.get(st.id) === st.state) continue;
       loggedState.current.set(st.id, st.state);
@@ -115,7 +122,7 @@ export const MonitorPanel: React.FC = () => {
         status: st.state,
       });
     }
-  }, [live, mode]);
+  }, [steps, mode]);
 
   // Poll running processes every 2s; a row is logged only when status changes.
   const runnersRef = useRef(runners);
@@ -135,13 +142,13 @@ export const MonitorPanel: React.FC = () => {
     const t = setInterval(poll, 2000);
     return () => clearInterval(t);
   }, [mode, activeCount]);
-  // Keep the last turn visible after it finishes.
-  const lastSteps = useRef<MonitorStep[]>([]);
-  if (live.length > 0) lastSteps.current = live;
-  const steps = live.length > 0 ? live : lastSteps.current;
 
   if (mode === 'off') return null;
   if (steps.length === 0 && requests.length === 0 && runners.length === 0) {
+    return null;
+  }
+  // Compact mode has nothing to say without steps or a running command.
+  if (mode === 'compact' && steps.length === 0 && runners.length === 0) {
     return null;
   }
 
@@ -159,22 +166,27 @@ export const MonitorPanel: React.FC = () => {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Box>
-        <Text>
-          {Array.from(line).map((ch, i) => {
-            const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
-            return (
-              <Text key={i} color={state ? COLOR[state] : theme.text.secondary}>
-                {ch}
-              </Text>
-            );
-          })}
-        </Text>
-        <Text color={theme.text.secondary}>
-          {'   '}
-          {done}/{total}
-        </Text>
-      </Box>
+      {steps.length > 0 && (
+        <Box>
+          <Text>
+            {Array.from(line).map((ch, i) => {
+              const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
+              return (
+                <Text
+                  key={i}
+                  color={state ? COLOR[state] : theme.text.secondary}
+                >
+                  {ch}
+                </Text>
+              );
+            })}
+          </Text>
+          <Text color={theme.text.secondary}>
+            {'   '}
+            {done}/{total}
+          </Text>
+        </Box>
+      )}
       {mode === 'compact' ? (
         <Text color={theme.text.secondary} wrap="truncate-end">
           {main && main.status === 'running'
