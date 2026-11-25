@@ -1272,7 +1272,42 @@ export function setAfotRuntimePermissions(
     _runtimeShellApproval = perms.shellApproval;
 }
 
+// Permission flags read from config.json are frozen the first time they are
+// needed in this process. A tool (or a prompt injection) that edits config.json
+// mid-session therefore cannot widen permissions until the next start; the
+// user's own /permissions commands refresh the snapshot explicitly.
+let _permConfigSnapshot: AfotConfig | null | undefined;
+
+function readPermissionConfig(): AfotConfig | null {
+  if (_permConfigSnapshot === undefined) {
+    _permConfigSnapshot = readAfotConfig();
+  }
+  return _permConfigSnapshot;
+}
+
+/** Re-reads config.json into the permission snapshot (user-initiated changes only). */
+export function refreshAfotPermissionSnapshot(): void {
+  _permConfigSnapshot = readAfotConfig();
+}
+
+/** True if config.json now differs from what this session started with. */
+export function hasAfotPermissionConfigDrifted(): boolean {
+  if (_permConfigSnapshot === undefined) return false;
+  const pick = (c: AfotConfig | null) =>
+    JSON.stringify([
+      c?.autoApprove,
+      c?.autoApproveShell,
+      c?.allowAllPaths,
+      c?.autoApproveWorkspaceWrites,
+      c?.approvalMode,
+      c?.shellApproval,
+      c?.permissions,
+    ]);
+  return pick(readAfotConfig()) !== pick(_permConfigSnapshot);
+}
+
 export function resetAfotRuntimePermissions(): void {
+  _permConfigSnapshot = undefined;
   _runtimeAutoApprove = undefined;
   _runtimeAutoApproveShell = undefined;
   _runtimeAutoApproveWorkspaceWrites = undefined;
@@ -1284,7 +1319,7 @@ export function resetAfotRuntimePermissions(): void {
  * Checks whether global auto-approval is enabled in environment or ~/.afot/config.json.
  */
 export function isAfotAutoApproveEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (_runtimeAutoApprove !== undefined) return _runtimeAutoApprove;
   const env = envFlag('AFOT_AUTO_APPROVE');
@@ -1302,7 +1337,7 @@ export function isAfotAutoApproveEnabled(
  * Checks whether shell execution auto-approval is enabled.
  */
 export function isAfotAutoApproveShellEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (isAfotAutoApproveEnabled(config)) return true;
   if (_runtimeAutoApproveShell !== undefined) return _runtimeAutoApproveShell;
@@ -1318,7 +1353,7 @@ export function isAfotAutoApproveShellEnabled(
  * Checks whether unrestricted filesystem directory access is enabled.
  */
 export function isAfotAllowAllPathsEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (isAfotAutoApproveEnabled(config)) return true;
   if (_runtimeAllowAllPaths !== undefined) return _runtimeAllowAllPaths;
@@ -1344,7 +1379,7 @@ export function isAfotAllowAllPathsEnabled(
  * Checks whether workspace write/edit auto-approval is enabled.
  */
 export function isAfotAutoApproveWorkspaceWritesEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (isAfotAutoApproveEnabled(config)) return true;
   if (_runtimeAutoApproveWorkspaceWrites !== undefined)
@@ -1370,7 +1405,7 @@ function parseShellApproval(v: unknown): AfotShellApprovalMode | undefined {
  * AFOT_SHELL_APPROVAL env > config.json. Defaults to 'ask'.
  */
 export function getAfotShellApprovalMode(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): AfotShellApprovalMode {
   if (_runtimeShellApproval !== undefined) return _runtimeShellApproval;
   const env = parseShellApproval(process.env['AFOT_SHELL_APPROVAL']);
@@ -1472,6 +1507,7 @@ export function setAfotPermissions(
     config.shellApproval = permissions.shellApproval;
   }
   atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
+  refreshAfotPermissionSnapshot();
   debugLogger.log('AFOT: Permissions configuration updated');
 }
 
