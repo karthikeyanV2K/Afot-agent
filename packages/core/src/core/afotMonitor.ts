@@ -89,3 +89,8 @@ export function resetMonitor(): void {
   nextId = 1;
   emit();
 }
+
+/** Tells subscribers that monitor settings (not data) changed. */
+export function notifyMonitorChange(): void {
+  emit();
+}

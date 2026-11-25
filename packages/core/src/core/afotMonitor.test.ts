@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   getMonitorRequests,
@@ -14,6 +17,7 @@ import {
   updateMonitorRequest,
 } from './afotMonitor.js';
 import {
+  cycleAfotMonitorMode,
   getAfotMonitorMode,
   setAfotMonitorRuntime,
 } from './afotAuthStorage.js';
@@ -77,5 +81,36 @@ describe('getAfotMonitorMode', () => {
     setAfotMonitorRuntime(undefined);
     process.env['AFOT_MONITOR'] = 'bogus';
     expect(getAfotMonitorMode({ monitor: 'bogus' })).toBe('off');
+  });
+});
+
+describe('cycleAfotMonitorMode', () => {
+  let dir: string;
+  const prevHome = process.env['AFOT_HOME'];
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'afot-mon-'));
+    process.env['AFOT_HOME'] = dir;
+    delete process.env['AFOT_MONITOR'];
+    setAfotMonitorRuntime(undefined);
+  });
+  afterEach(() => {
+    setAfotMonitorRuntime(undefined);
+    if (prevHome === undefined) delete process.env['AFOT_HOME'];
+    else process.env['AFOT_HOME'] = prevHome;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('cycles off -> compact -> expanded -> off, persists and notifies', () => {
+    const seen = vi.fn();
+    const off = subscribeMonitor(seen);
+    expect(cycleAfotMonitorMode()).toBe('compact');
+    expect(cycleAfotMonitorMode()).toBe('expanded');
+    expect(seen).toHaveBeenCalled();
+    const saved = JSON.parse(
+      fs.readFileSync(path.join(dir, 'config.json'), 'utf8'),
+    ) as { monitor?: string };
+    expect(saved.monitor).toBe('expanded');
+    expect(cycleAfotMonitorMode()).toBe('off');
+    off();
   });
 });

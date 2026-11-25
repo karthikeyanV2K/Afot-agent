@@ -101,6 +101,7 @@ available combinations.
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | `app.showErrorDetails`        | Toggle the debug console for detailed error information.                                                                                           | `F12`              |
 | `app.showFullTodos`           | Toggle the full TODO list.                                                                                                                         | `Ctrl+T`           |
+| `app.cycleMonitor`            | Cycle the live monitor: off, compact, expanded.                                                                                                    | `Alt+T`            |
 | `app.showIdeContextDetail`    | Show IDE context details.                                                                                                                          | `F4`               |
 | `app.toggleMarkdown`          | Toggle Markdown rendering.                                                                                                                         | `Alt+M`            |
 | `app.toggleCopyMode`          | Toggle copy mode when in alternate buffer mode.                                                                                                    | `F9`               |
