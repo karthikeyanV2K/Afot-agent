@@ -229,3 +229,9 @@ AFOT CLI is a fork of [Gemini CLI](https://github.com/google-gemini/gemini-cli) 
 ## 📄 License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+## Audit log and state-directory guard
+
+- Shell commands that ran **without a prompt** (auto-approve, YOLO, workspace mode, allow rules) are appended to `~/.afot/audit.log` (JSONL, 0600, rotated at 5 MB; credentials are masked). Disable with `AFOT_AUDIT=0`.
+- Any shell command that mentions `~/.afot` / `$AFOT_HOME` (auth.json, config.json) **always asks**, even in YOLO. In non-interactive mode it is denied.
+- Permission flags from `config.json` are frozen when first read in a session. Editing the file mid-session does not widen permissions; use `/permissions`, or restart. Env vars and slash commands still apply immediately.

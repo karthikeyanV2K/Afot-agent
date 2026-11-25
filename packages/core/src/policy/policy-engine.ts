@@ -57,6 +57,8 @@ import {
   getAfotDir,
 } from '../core/afotAuthStorage.js';
 import { listGrants, getSessionRoot } from '../core/afotPathGuard.js';
+import { commandMentionsAfotDir } from './afotStateDirGuard.js';
+import { appendAuditEntry } from '../core/afotAudit.js';
 import { classifyWorkspaceShell } from './afotWorkspaceShell.js';
 import {
   type SandboxManager,
@@ -1149,6 +1151,31 @@ export class PolicyEngine {
             };
           }
         }
+      }
+    }
+
+    // AFOT: top-level shell commands only (sub-command recursion passes
+    // skipHeuristics). Commands touching ~/.afot always need a human, even in
+    // YOLO; everything else that runs unprompted goes in the audit log.
+    if (
+      isShellCommand &&
+      command &&
+      !skipHeuristics &&
+      decision === PolicyDecision.ALLOW
+    ) {
+      const cwd = shellDirPath ?? undefined;
+      const mode = String(this.approvalMode);
+      if (commandMentionsAfotDir(command, getAfotDir())) {
+        decision = PolicyDecision.ASK_USER;
+        appendAuditEntry({
+          event: 'forced_ask',
+          command,
+          cwd,
+          mode,
+          reason: 'touches AFOT state directory',
+        });
+      } else {
+        appendAuditEntry({ event: 'auto_approved', command, cwd, mode });
       }
     }
 
