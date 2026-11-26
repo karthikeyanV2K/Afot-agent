@@ -29,13 +29,13 @@ import {
   STATE_GLYPH,
   type StepState,
 } from '../../utils/monitorTimeline.js';
-import { SpecTimeline } from './SpecTimeline.js';
 import {
   formatElapsed,
   pickRunners,
   pollStatus,
 } from '../../utils/monitorRunner.js';
 import { theme } from '../../semantic-colors.js';
+import { SpecTimeline } from './SpecTimeline.js';
 
 const COLOR: Record<StepState, string> = {
   done: theme.status.success,
@@ -78,6 +78,21 @@ function useMonitorRequests(): MonitorRequest[] {
     };
   }, []);
   return rows;
+}
+
+function ColoredTimeline({ timeline }: { timeline: string }) {
+  return (
+    <Text>
+      {Array.from(timeline).map((ch, i) => {
+        const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
+        return (
+          <Text key={i} color={state ? COLOR[state] : theme.text.secondary}>
+            {ch}
+          </Text>
+        );
+      })}
+    </Text>
+  );
 }
 
 export const MonitorPanel: React.FC = () => {
@@ -142,7 +157,12 @@ export const MonitorPanel: React.FC = () => {
 
   if (mode === 'off') return null;
   // Spec mode always renders (shows "create spec" prompt when no goal)
-  if (mode !== 'spec' && steps.length === 0 && requests.length === 0 && runners.length === 0) {
+  if (
+    mode !== 'spec' &&
+    steps.length === 0 &&
+    requests.length === 0 &&
+    runners.length === 0
+  ) {
     return null;
   }
   if (mode === 'compact' && steps.length === 0 && runners.length === 0) {
@@ -153,15 +173,15 @@ export const MonitorPanel: React.FC = () => {
   const active = steps.find(
     (s) => s.state === 'running' || s.state === 'waiting',
   );
-  const timelineWidth = Math.max(20, terminalWidth - 4);
+  const width = Math.max(20, terminalWidth - 2);
   const elapsed = (key: string): string => {
     const t = startedAt.current.get(key);
     return t === undefined ? '' : formatElapsed(Date.now() - t);
   };
   const mainRunner = runners.find((r) => r.status === 'running') ?? runners[0];
-  const timeline = renderTimeline(steps, timelineWidth);
+  const timeline = renderTimeline(steps, width - 8);
 
-  // Build step list for checklist
+  // Checklist of steps
   const stepList = steps.map((s, i) => ({
     num: i + 1,
     label: s.label,
@@ -169,197 +189,142 @@ export const MonitorPanel: React.FC = () => {
     elapsed: s.state === 'done' || s.state === 'running' ? elapsed(s.id) : '',
   }));
 
-  return (
-    <Box flexDirection="column" paddingX={1} paddingY={1}>
-      {/* ──────────────────────────────────────────────────────────────
-          COLLAPSED VIEW (only when mode === 'compact')
-          ────────────────────────────────────────────────────────────── */}
-      {mode === 'compact' && (
-        <Box flexDirection="column" marginBottom={1}>
-          {/* Timeline line */}
-          <Box>
-            <Text>
-              {Array.from(timeline).map((ch, i) => {
-                const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
-                return (
-                  <Text
-                    key={i}
-                    color={state ? COLOR[state] : theme.text.secondary}
-                  >
-                    {ch}
-                  </Text>
-                );
-              })}
-            </Text>
-            <Text color={theme.text.secondary}>
-              {' '}
-              {done}/{total}
-            </Text>
-          </Box>
+  // ──────────────────────────────────────────────────────────────
+  // SPEC TIMELINE VIEW
+  // ──────────────────────────────────────────────────────────────
+  if (mode === 'spec') {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <SpecTimeline goal={null} terminalWidth={width} />
+      </Box>
+    );
+  }
 
-          {/* Running command / poll status */}
-          <Text color={theme.text.secondary} wrap="truncate-end">
-            {mainRunner && mainRunner.status === 'running'
-              ? `▸ running: ${clip(mainRunner.command, Math.max(10, terminalWidth - 50))}${mainRunner.pid !== undefined ? `  pid ${mainRunner.pid}` : ''}  ${elapsed(mainRunner.key)}`
-              : active
-                ? `${STATE_GLYPH[active.state]} ${clip(active.label, terminalWidth - 30)}`
-                : 'idle'}
-            {'   poll #'}
-            {requests.length} {'  '}
-            {activeCount > 0
-              ? `every 2s  next ${(2 - ((Date.now() / 2000) % 2)) | 0}s`
-              : 'paused'}
-            {'   Ctrl+T expand'}
+  // ──────────────────────────────────────────────────────────────
+  // COLLAPSED VIEW (compact)
+  // ──────────────────────────────────────────────────────────────
+  if (mode === 'compact') {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Box>
+          <ColoredTimeline timeline={timeline} />
+          <Text color={theme.text.secondary}>
+            {'   '}
+            {done}/{total}
           </Text>
         </Box>
-      )}
+        <Text color={theme.text.secondary} wrap="truncate-end">
+          {mainRunner && mainRunner.status === 'running'
+            ? `▸ running: ${clip(mainRunner.command, Math.max(10, width - 30))}${mainRunner.pid !== undefined ? `  pid ${mainRunner.pid}` : ''}  ${elapsed(mainRunner.key)}`
+            : active
+              ? `${STATE_GLYPH[active.state]} ${clip(active.label, width - 30)}`
+              : 'idle'}
+          {'   poll #'}
+          {requests.length}
+          {'   Alt+T expand'}
+        </Text>
+      </Box>
+    );
+  }
 
-      {/* ──────────────────────────────────────────────────────────────
-          EXPANDED VIEW (mode === 'expanded')
-          ────────────────────────────────────────────────────────────── */}
-      {mode === 'expanded' && (
-        <Box
-          flexDirection="column"
-          marginTop={1}
-          borderStyle="round"
-          borderColor={theme.border.default}
-          paddingX={1}
-          paddingY={1}
-        >
-          {/* Timeline header */}
-          <Box marginBottom={1}>
-            <Text bold color={theme.text.accent}>
-              TIMELINE
-            </Text>
-            <Text>
-              {Array.from(timeline).map((ch, i) => {
-                const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
-                return (
-                  <Text
-                    key={i}
-                    color={state ? COLOR[state] : theme.text.secondary}
-                  >
-                    {ch}
-                  </Text>
-                );
-              })}
-            </Text>
-            <Text color={theme.text.secondary}>
-              {'   '}
-              {stepList.map((s) => s.label.slice(0, 8)).join('     ')}
-            </Text>
-            <Text color={theme.text.secondary}>
-              {'   '}
-              {stepList
-                .map((s) => {
-                  if (s.state === 'running') return '…12s';
-                  if (s.state === 'done') return '0.4s';
-                  return '    ';
-                })
-                .join('     ')}
-            </Text>
-          </Box>
+  // ──────────────────────────────────────────────────────────────
+  // EXPANDED VIEW
+  // ──────────────────────────────────────────────────────────────
+  return (
+    <Box flexDirection="column" paddingX={1} width={width + 2}>
+      {/* Timeline header */}
+      <Box marginBottom={1}>
+        <Text bold color={theme.text.accent}>
+          TIMELINE
+        </Text>
+        <Text> </Text>
+        <ColoredTimeline timeline={timeline} />
+        <Text color={theme.text.secondary}>
+          {'   '}
+          {total > 0 ? `${done}/${total}` : ''}
+        </Text>
+      </Box>
 
-          {/* STEPS checklist */}
-          <Box marginBottom={1} flexDirection="column">
-            <Text bold color={theme.text.accent}>
-              STEPS
+      {/* Steps checklist */}
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color={theme.text.accent}>
+          STEPS
+        </Text>
+        {stepList.length === 0 ? (
+          <Text color={theme.text.secondary}>no steps</Text>
+        ) : (
+          stepList.map((s) => (
+            <Text key={s.num} color={COLOR[s.state]} wrap="truncate-end">
+              {STATE_CHECK[s.state]} {s.num}.{' '}
+              {clip(s.label, width - 14)}
+              {s.elapsed ? `  ${s.elapsed}` : ''}
             </Text>
-            {stepList.map((s) => (
-              <Box key={s.num} flexShrink={0}>
-                <Text color={COLOR[s.state]} wrap="truncate-end">
-                  {STATE_CHECK[s.state]} {s.num}.{' '}
-                  {clip(s.label, terminalWidth - 10)}
-                  {s.elapsed ? `  ${s.elapsed}` : ''}
-                </Text>
-              </Box>
-            ))}
-          </Box>
+          ))
+        )}
+      </Box>
 
-          {/* COMMAND RUNNER */}
-          {runners.length > 0 && (
-            <Box marginBottom={1}>
-              <Text bold color={theme.text.accent}>
-                COMMAND RUNNER
+      {/* Command runner */}
+      {runners.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold color={theme.text.accent}>
+            COMMAND RUNNER
+          </Text>
+          {runners.slice(0, 2).map((r) => (
+            <Box key={r.key} flexDirection="column" marginTop={1}>
+              <Text
+                color={
+                  r.status === 'running'
+                    ? theme.text.accent
+                    : r.exitCode === 0
+                      ? theme.status.success
+                      : theme.status.error
+                }
+                wrap="truncate-end"
+              >
+                {r.pid !== undefined ? `PID ${r.pid}  ` : ''}
+                {clip(r.command, Math.max(10, width - 30))}
+                {'  '}
+                {r.status === 'running'
+                  ? `${r.source}  ${elapsed(r.key)}`
+                  : `exited ${r.exitCode ?? '?'}`}
               </Text>
-              {runners.slice(0, 3).map((r) => (
-                <Box key={r.key} flexDirection="column" marginTop={1}>
-                  <Text
-                    color={
-                      r.status === 'running'
-                        ? theme.text.accent
-                        : r.status === 'exited'
-                          ? theme.status.success
-                          : theme.status.error
-                    }
-                    wrap="truncate-end"
-                  >
-                    {r.pid !== undefined ? `PID ${r.pid}  ` : ''}
-                    {clip(r.command, Math.max(10, terminalWidth - 40))}
-                    {'  '}
-                    {r.status === 'running'
-                      ? `${r.source}  ${elapsed(r.key)}`
-                      : `exited ${r.exitCode ?? '?'}`}
-                  </Text>
-                  {r.lines.map((l, i) => (
-                    <Text
-                      key={i}
-                      color={theme.text.secondary}
-                      wrap="truncate-end"
-                    >
-                      {'> '}
-                      {l}
-                    </Text>
-                  ))}
-                </Box>
+              {r.lines.slice(0, 3).map((l, i) => (
+                <Text key={i} color={theme.text.secondary} wrap="truncate-end">
+                  {'> '}
+                  {clip(l, width - 4)}
+                </Text>
               ))}
             </Box>
-          )}
-
-          {/* POLLING / REQUESTS LOG */}
-          <Box>
-            <Text bold color={theme.text.accent}>
-              POLLING / REQUESTS
-            </Text>
-            {requests.length === 0 ? (
-              <Text color={theme.text.secondary}>none yet</Text>
-            ) : (
-              requests.slice(-10).map((r) => (
-                <Text
-                  key={r.id}
-                  color={theme.text.secondary}
-                  wrap="truncate-end"
-                >
-                  {String(r.id).padStart(3)} {hhmmss(r.ts)} {r.type.padEnd(4)}{' '}
-                  {clip(r.target, 28).padEnd(28)} {r.status.padEnd(7)}
-                  {r.ms !== undefined ? `${r.ms}ms`.padStart(8) : '       —'}
-                  {r.tokensIn !== undefined
-                    ? `  ${r.tokensIn}→${r.tokensOut ?? 0}`
-                    : ''}
-                </Text>
-              ))
-            )}
-          </Box>
-
-          {/* Help footer */}
-          <Box marginTop={1} flexDirection="row" justifyContent="space-between">
-            <Text color={theme.text.secondary}>
-              ctrl+t close ↑↓ select step enter show output k kill cmd p pause
-              polling
-            </Text>
-          </Box>
+          ))}
         </Box>
       )}
 
-      {/* ──────────────────────────────────────────────────────────────
-          SPEC TIMELINE VIEW (mode === 'spec')
-          ────────────────────────────────────────────────────────────── */}
-      {mode === 'spec' && (
-        <SpecTimeline
-          goal={null}
-          terminalWidth={terminalWidth}
-        />
-      )}
+      {/* Polling / requests */}
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color={theme.text.accent}>
+          POLLING / REQUESTS
+        </Text>
+        {requests.length === 0 ? (
+          <Text color={theme.text.secondary}>none yet</Text>
+        ) : (
+          requests.slice(-6).map((r) => (
+            <Text
+              key={r.id}
+              color={theme.text.secondary}
+              wrap="truncate-end"
+            >
+              {String(r.id).padStart(3)} {hhmmss(r.ts)} {r.type.padEnd(4)}{' '}
+              {clip(r.target, 24).padEnd(24)} {r.status.padEnd(7)}
+              {r.ms !== undefined ? `${r.ms}ms` : '—'}
+            </Text>
+          ))
+        )}
+      </Box>
+
+      {/* Help footer */}
+      <Text color={theme.text.secondary} wrap="truncate-end">
+        alt+t close · ↑↓ select · enter show output · k kill cmd · p pause
+      </Text>
     </Box>
   );
 };

@@ -97,9 +97,9 @@ export const DefaultAppLayout: React.FC = () => {
             />
           ) : (
             <>
-              <MonitorPanel />
               <AgentBar roster={agentRoster} />
               <Composer isFocused={true} />
+              <MonitorPanel />
               <AgentDock roster={agentRoster} />
             </>
           )}

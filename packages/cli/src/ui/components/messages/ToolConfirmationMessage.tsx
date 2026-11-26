@@ -19,6 +19,7 @@ import {
   ApprovalMode,
   hasRedirection,
   debugLogger,
+  setAfotRuntimePermissions,
 } from '@google/gemini-cli-core';
 import { useToolActions } from '../../contexts/ToolActionsContext.js';
 import {
@@ -167,7 +168,18 @@ export const ToolConfirmationMessage: React.FC<
 
   const handleConfirm = useCallback(
     (outcome: ToolConfirmationOutcome, payload?: ToolConfirmationPayload) => {
-      void confirm(callId, outcome, payload).catch((error: unknown) => {
+      let effectiveOutcome = outcome;
+      if (outcome === ToolConfirmationOutcome.ProceedAutoApprove) {
+        // Enable global auto-approval for the rest of the session, then
+        // proceed + remember this tool as always-allowed.
+        try {
+          setAfotRuntimePermissions({ autoApprove: true });
+        } catch {
+          /* permission snapshot refresh is best-effort */
+        }
+        effectiveOutcome = ToolConfirmationOutcome.ProceedAlways;
+      }
+      void confirm(callId, effectiveOutcome, payload).catch((error: unknown) => {
         debugLogger.error(
           `Failed to handle tool confirmation for ${callId}:`,
           error,
@@ -396,6 +408,12 @@ export const ToolConfirmationMessage: React.FC<
           });
         }
       }
+      // Auto-approve everything for the rest of this session.
+      options.push({
+        label: 'Auto-approve everything (this session)',
+        value: ToolConfirmationOutcome.ProceedAutoApprove,
+        key: 'Auto-approve everything (this session)',
+      });
       options.push({
         label: 'No, suggest changes (esc)',
         value: ToolConfirmationOutcome.Cancel,

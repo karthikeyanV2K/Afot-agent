@@ -1237,6 +1237,8 @@ export enum ToolConfirmationOutcome {
   ProceedAlwaysAndSave = 'proceed_always_and_save',
   ProceedAlwaysServer = 'proceed_always_server',
   ProceedAlwaysTool = 'proceed_always_tool',
+  /** Enable global auto-approval for the rest of this session. */
+  ProceedAutoApprove = 'proceed_auto_approve',
   ModifyWithEditor = 'modify_with_editor',
   Cancel = 'cancel',
 }
