@@ -56,6 +56,11 @@ export interface SwarmTask {
 
 export interface SwarmPlan {
   goal: string;
+  /**
+   * Short model-chosen name for the swarm ("the parser rewrite"). Falls back
+   * to a shortened goal. This is what names the agent dock header.
+   */
+  title?: string;
   tasks: SwarmTask[];
   waves: string[][];
 }
@@ -157,7 +162,11 @@ export class AfotSwarmManager {
     return this.title;
   }
 
-  postMessage(sender: string, text: string, recipient?: string): SwarmBoardPost {
+  postMessage(
+    sender: string,
+    text: string,
+    recipient?: string,
+  ): SwarmBoardPost {
     this.seqCounter++;
     const post: SwarmBoardPost = {
       seq: this.seqCounter,
@@ -188,7 +197,11 @@ export class AfotSwarmManager {
       existing.role = role;
       if (model) existing.model = model;
       existing.lastActiveAt = Date.now();
-      this.postMessage('coordinator', `@${cleanName} revived: ${brief}`, cleanName);
+      this.postMessage(
+        'coordinator',
+        `@${cleanName} revived: ${brief}`,
+        cleanName,
+      );
       return existing;
     }
 
@@ -206,7 +219,11 @@ export class AfotSwarmManager {
     return member;
   }
 
-  setMemberState(name: string, state: SwarmMemberState, brief?: string): boolean {
+  setMemberState(
+    name: string,
+    state: SwarmMemberState,
+    brief?: string,
+  ): boolean {
     const cleanName = name.toLowerCase().replace(/^@/, '').trim();
     const member = this.members.get(cleanName);
     if (!member) return false;
@@ -331,7 +348,7 @@ export function calculateWaves(tasks: SwarmTask[]): string[][] {
 /**
  * Resolves a worker archetype to its corresponding LocalAgentDefinition.
  */
- 
+
 export function getSwarmAgentDefinition(
   worker: SwarmWorkerType,
   config: Config,
@@ -350,6 +367,28 @@ export function getSwarmAgentDefinition(
     default:
       return GeneralistAgent(config);
   }
+}
+
+/**
+ * Short name for the swarm. Kept human-sized so it fits a panel header.
+ */
+export function shortenTitle(
+  text: string,
+  maxChars = 48,
+  maxWords = 5,
+): string {
+  const collapsed = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
+  if (!collapsed) return 'AFOT Swarm';
+  const words = collapsed.split(' ');
+  let title = words.slice(0, maxWords).join(' ');
+  if (title.length > maxChars)
+    title = `${title.slice(0, maxChars - 1).trimEnd()}…`;
+  title = title.replace(/[.,;:!?…-]+$/g, '');
+  return title || 'AFOT Swarm';
 }
 
 /**
@@ -477,7 +516,7 @@ export function generateHeuristicPlan(goal: string): SwarmPlan {
   }
 
   const waves = calculateWaves(tasks);
-  return { goal, tasks, waves };
+  return { goal, title: shortenTitle(goal), tasks, waves };
 }
 
 /**
@@ -508,6 +547,7 @@ Rules:
 2. Keep briefs concise and under 50 words.
 3. Return ONLY a valid JSON object matching this structure:
 {
+  "title": "Short swarm name, e.g. the parser rewrite",
   "tasks": [
     {
       "id": "task-1",
@@ -579,7 +619,15 @@ Rules:
                 t.id = id;
               }
               const waves = calculateWaves(validatedTasks);
-              return { goal, tasks: validatedTasks, waves };
+              const modelTitle = isRecord(parsed)
+                ? String(parsed['title'] ?? '').trim()
+                : '';
+              return {
+                goal,
+                title: shortenTitle(modelTitle || goal),
+                tasks: validatedTasks,
+                waves,
+              };
             }
           }
         }
@@ -608,7 +656,8 @@ Rules:
     );
     const completedOutputs = new Map<string, string>();
     const swarmManager = AfotSwarmManager.getInstance();
-    swarmManager.setTitle(plan.goal);
+    // The model names the swarm; that name also titles the agent dock.
+    swarmManager.setTitle(plan.title ?? plan.goal);
 
     // Register all planned workers in the live AGY swarm roster
     for (const task of plan.tasks) {

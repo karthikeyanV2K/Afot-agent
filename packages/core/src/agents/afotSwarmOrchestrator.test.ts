@@ -10,6 +10,7 @@ import {
   AfotSwarmOrchestrator,
   calculateWaves,
   generateHeuristicPlan,
+  shortenTitle,
   type SwarmTask,
   type SwarmProgressEvent,
 } from './afotSwarmOrchestrator.js';
@@ -313,5 +314,31 @@ describe('AfotSwarmOrchestrator', () => {
       // Verify wave 1 tasks ran before wave 2
       expect(mockRun).toHaveBeenCalledTimes(3);
     });
+  });
+});
+
+describe('shortenTitle', () => {
+  it('keeps short names as-is', () => {
+    expect(shortenTitle('the parser rewrite')).toBe('the parser rewrite');
+  });
+
+  it('collapses whitespace and strips quotes and trailing punctuation', () => {
+    expect(shortenTitle('  "The   parser\nrewrite"  ')).toBe(
+      'The parser rewrite',
+    );
+    expect(shortenTitle('fixing the bug...')).toBe('fixing the bug');
+  });
+
+  it('caps word count and length', () => {
+    expect(shortenTitle('one two three four five six seven eight')).toBe(
+      'one two three four five',
+    );
+    const long = shortenTitle('word '.repeat(50).trim());
+    expect(long.length).toBeLessThanOrEqual(48);
+  });
+
+  it('falls back for empty input', () => {
+    expect(shortenTitle('   ')).toBe('AFOT Swarm');
+    expect(shortenTitle('""')).toBe('AFOT Swarm');
   });
 });
