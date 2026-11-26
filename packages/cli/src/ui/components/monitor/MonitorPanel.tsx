@@ -29,6 +29,7 @@ import {
   STATE_GLYPH,
   type StepState,
 } from '../../utils/monitorTimeline.js';
+import { SpecTimeline } from './SpecTimeline.js';
 import {
   formatElapsed,
   pickRunners,
@@ -140,7 +141,8 @@ export const MonitorPanel: React.FC = () => {
   }, [mode, activeCount]);
 
   if (mode === 'off') return null;
-  if (steps.length === 0 && requests.length === 0 && runners.length === 0) {
+  // Spec mode always renders (shows "create spec" prompt when no goal)
+  if (mode !== 'spec' && steps.length === 0 && requests.length === 0 && runners.length === 0) {
     return null;
   }
   if (mode === 'compact' && steps.length === 0 && runners.length === 0) {
@@ -347,6 +349,16 @@ export const MonitorPanel: React.FC = () => {
             </Text>
           </Box>
         </Box>
+      )}
+
+      {/* ──────────────────────────────────────────────────────────────
+          SPEC TIMELINE VIEW (mode === 'spec')
+          ────────────────────────────────────────────────────────────── */}
+      {mode === 'spec' && (
+        <SpecTimeline
+          goal={null}
+          terminalWidth={terminalWidth}
+        />
       )}
     </Box>
   );

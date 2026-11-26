@@ -1489,7 +1489,7 @@ export function isAfotFullOutputEnabled(
   return config?.fullOutput ?? true;
 }
 
-export type AfotMonitorMode = 'off' | 'compact' | 'expanded';
+export type AfotMonitorMode = 'off' | 'compact' | 'expanded' | 'spec';
 let _runtimeMonitor: AfotMonitorMode | undefined;
 
 export function setAfotMonitorRuntime(mode: AfotMonitorMode | undefined): void {
@@ -1497,9 +1497,9 @@ export function setAfotMonitorRuntime(mode: AfotMonitorMode | undefined): void {
   notifyMonitorChange();
 }
 
-/** off -> compact -> expanded -> off. Persisting is best-effort. */
+/** off -> compact -> expanded -> spec -> off. Persisting is best-effort. */
 export function cycleAfotMonitorMode(): AfotMonitorMode {
-  const order: AfotMonitorMode[] = ['off', 'compact', 'expanded'];
+  const order: AfotMonitorMode[] = ['off', 'compact', 'expanded', 'spec'];
   const next = order[(order.indexOf(getAfotMonitorMode()) + 1) % order.length]!;
   try {
     setAfotMonitorMode(next);

@@ -74,6 +74,7 @@ import { swarmCommand } from '../ui/commands/swarmCommand.js';
 import { approvalCommand } from '../ui/commands/approvalCommand.js';
 import { subagentsCommand } from '../ui/commands/subagentsCommand.js';
 import { dockCommand } from '../ui/commands/dockCommand.js';
+import { specCommand } from '../ui/commands/specCommand.js';
 import { securityReportCommand } from '../ui/commands/securityReportCommand.js';
 
 /**
@@ -250,6 +251,7 @@ export class BuiltinCommandLoader implements ICommandLoader {
       securityReportCommand,
       subagentsCommand,
       dockCommand,
+      specCommand,
       setupGithubCommand,
       terminalSetupCommand,
       ...(this.config?.isVoiceModeEnabled() ? [voiceCommand] : []),
