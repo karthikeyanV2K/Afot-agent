@@ -43,6 +43,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { debugLogger } from '../utils/debugLogger.js';
+import { getEnvProviderKey, listEnvProviders } from './afotProviderDiscovery.js';
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -220,7 +221,15 @@ export interface AfotPermissionsConfig {
   allowAllPaths?: boolean;
   /** List of additional directory paths permitted for file access and shell execution */
   allowedPaths?: string[];
+  /**
+   * Shell approval mode. 'workspace' runs commands that stay inside the
+   * workspace without a prompt, but still asks for deletes, git reverts/resets,
+   * and anything touching paths outside the workspace. Default 'ask'.
+   */
+  shellApproval?: AfotShellApprovalMode;
 }
+
+export type AfotShellApprovalMode = 'ask' | 'workspace';
 
 export interface AfotConfig {
   providers?: Record<string, AfotProviderConfig>;
@@ -230,12 +239,16 @@ export interface AfotConfig {
   autoApprove?: boolean;
   /** Auto-approve shell execution commands */
   autoApproveShell?: boolean;
+  /** Show tool/shell output in full (no "N lines hidden"). Default true. */
+  fullOutput?: boolean;
   /** Auto-approve workspace file edits and writes */
   autoApproveWorkspaceWrites?: boolean;
   /** Allow access to any directory outside current working directory without prompts */
   allowAllPaths?: boolean;
   /** Specific extra allowed directory paths */
   allowedPaths?: string[];
+  /** Shell approval mode ('ask' | 'workspace'). See AfotPermissionsConfig. */
+  shellApproval?: AfotShellApprovalMode;
   /** Structured permissions settings */
   permissions?: AfotPermissionsConfig;
   /** Name of the provider to use by default (matches a key in auth.json) */
@@ -349,6 +362,35 @@ export function readAfotAuthFile(): AfotAuthFile | null {
   return readJsonFile<AfotAuthFile>(getAfotAuthFilePath());
 }
 
+/**
+ * auth.json plus providers whose key comes from the environment
+ * (GROQ_API_KEY, AFOT_<NAME>_API_KEY, ...). auth.json wins when both exist.
+ * Read-only view: never written back, so env keys are not persisted to disk.
+ */
+export function readAfotAuthFileWithEnv(): AfotAuthFile | null {
+  const file = readAfotAuthFile();
+  const cfg = readAfotConfig();
+  const envNames = listEnvProviders([
+    ...Object.keys(BUILTIN_PROVIDERS),
+    ...Object.keys(cfg?.providers ?? {}),
+  ]);
+  if (envNames.length === 0) return file;
+  const merged: AfotAuthFile = { ...(file ?? {}) };
+  for (const name of envNames) {
+    const existing = merged[name];
+    const hasKey =
+      existing?.type === 'api'
+        ? !!existing.key?.trim()
+        : existing?.type === 'oauth'
+          ? !!existing.access_token?.trim()
+          : false;
+    if (hasKey) continue;
+    const key = getEnvProviderKey(name);
+    if (key) merged[name] = { type: 'api', key };
+  }
+  return merged;
+}
+
 export function readAfotConfig(): AfotConfig | null {
   return readJsonFile<AfotConfig>(getAfotConfigFilePath());
 }
@@ -397,7 +439,7 @@ export function isEcoModeActive(
  * Lists all provider names that have a valid api-type entry in auth.json.
  */
 export function listAfotProviders(): string[] {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   if (!authFile) return [];
   return Object.entries(authFile)
     .filter(
@@ -419,7 +461,7 @@ export function getAllAfotProviderStatus(): Array<{
   models: string[];
   isLocal: boolean;
 }> {
-  const authFile = readAfotAuthFile() ?? {};
+  const authFile = readAfotAuthFileWithEnv() ?? {};
   const config = readAfotConfig();
 
   // Merge builtin definitions with any user-added ones
@@ -464,7 +506,7 @@ export function getAllAfotProviderStatus(): Array<{
  * Returns null if no usable provider is found.
  */
 export function resolveAfotProvider(): AfotResolvedProvider | null {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   if (!authFile) return null;
 
   const config = readAfotConfig();
@@ -551,7 +593,7 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
 export function resolveAfotProviderByName(
   providerName: string,
 ): AfotResolvedProvider | null {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   const entry = authFile?.[providerName];
   if (!entry) return null;
 
@@ -591,7 +633,7 @@ export function resolveAfotProviderByName(
 }
 
 export function resolveAfotActiveProviderName(): string | null {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   if (!authFile) return null;
 
   const envProvider = process.env['AFOT_PROVIDER']?.trim();
@@ -995,12 +1037,39 @@ export const BUILTIN_PROVIDERS: Record<
     baseUrl: 'https://api.groq.com/openai/v1',
     models: [
       'llama-3.3-70b-versatile',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
       'llama-3.1-8b-instant',
-      'moonshotai/kimi-k2-instruct',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
       'qwen/qwen3-32b',
-      'deepseek-r1-distill-llama-70b',
-      'compound-beta',
     ],
+    defaultModel: 'llama-3.3-70b-versatile',
+  },
+  // Free-tier OpenAI-compatible providers. Model lists here are only a
+  // fallback: /provider models and /model fetch the live list from /models.
+  cerebras: {
+    baseUrl: 'https://api.cerebras.ai/v1',
+    models: ['gpt-oss-120b', 'llama-3.3-70b', 'qwen-3-32b'],
+  },
+  sambanova: {
+    baseUrl: 'https://api.sambanova.ai/v1',
+    models: ['Meta-Llama-3.3-70B-Instruct', 'DeepSeek-V3-0324'],
+  },
+  fireworks: {
+    baseUrl: 'https://api.fireworks.ai/inference/v1',
+    models: ['accounts/fireworks/models/llama-v3p3-70b-instruct'],
+  },
+  hyperbolic: {
+    baseUrl: 'https://api.hyperbolic.xyz/v1',
+    models: ['meta-llama/Llama-3.3-70B-Instruct'],
+  },
+  github: {
+    baseUrl: 'https://models.github.ai/inference',
+    models: ['openai/gpt-4.1-mini', 'openai/gpt-4.1'],
+  },
+  huggingface: {
+    baseUrl: 'https://router.huggingface.co/v1',
+    models: ['meta-llama/Llama-3.3-70B-Instruct'],
   },
   mistral: {
     baseUrl: 'https://api.mistral.ai/v1',
@@ -1244,6 +1313,7 @@ let _runtimeAutoApprove: boolean | undefined;
 let _runtimeAutoApproveShell: boolean | undefined;
 let _runtimeAutoApproveWorkspaceWrites: boolean | undefined;
 let _runtimeAllowAllPaths: boolean | undefined;
+let _runtimeShellApproval: AfotShellApprovalMode | undefined;
 
 export function setAfotRuntimePermissions(
   perms: Partial<AfotPermissionsConfig>,
@@ -1255,20 +1325,58 @@ export function setAfotRuntimePermissions(
     _runtimeAutoApproveWorkspaceWrites = perms.autoApproveWorkspaceWrites;
   if (perms.allowAllPaths !== undefined)
     _runtimeAllowAllPaths = perms.allowAllPaths;
+  if (perms.shellApproval !== undefined)
+    _runtimeShellApproval = perms.shellApproval;
+}
+
+// Permission flags read from config.json are frozen the first time they are
+// needed in this process. A tool (or a prompt injection) that edits config.json
+// mid-session therefore cannot widen permissions until the next start; the
+// user's own /permissions commands refresh the snapshot explicitly.
+let _permConfigSnapshot: AfotConfig | null | undefined;
+
+function readPermissionConfig(): AfotConfig | null {
+  if (_permConfigSnapshot === undefined) {
+    _permConfigSnapshot = readAfotConfig();
+  }
+  return _permConfigSnapshot;
+}
+
+/** Re-reads config.json into the permission snapshot (user-initiated changes only). */
+export function refreshAfotPermissionSnapshot(): void {
+  _permConfigSnapshot = readAfotConfig();
+}
+
+/** True if config.json now differs from what this session started with. */
+export function hasAfotPermissionConfigDrifted(): boolean {
+  if (_permConfigSnapshot === undefined) return false;
+  const pick = (c: AfotConfig | null) =>
+    JSON.stringify([
+      c?.autoApprove,
+      c?.autoApproveShell,
+      c?.allowAllPaths,
+      c?.autoApproveWorkspaceWrites,
+      c?.approvalMode,
+      c?.shellApproval,
+      c?.permissions,
+    ]);
+  return pick(readAfotConfig()) !== pick(_permConfigSnapshot);
 }
 
 export function resetAfotRuntimePermissions(): void {
+  _permConfigSnapshot = undefined;
   _runtimeAutoApprove = undefined;
   _runtimeAutoApproveShell = undefined;
   _runtimeAutoApproveWorkspaceWrites = undefined;
   _runtimeAllowAllPaths = undefined;
+  _runtimeShellApproval = undefined;
 }
 
 /**
  * Checks whether global auto-approval is enabled in environment or ~/.afot/config.json.
  */
 export function isAfotAutoApproveEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (_runtimeAutoApprove !== undefined) return _runtimeAutoApprove;
   const env = envFlag('AFOT_AUTO_APPROVE');
@@ -1286,7 +1394,7 @@ export function isAfotAutoApproveEnabled(
  * Checks whether shell execution auto-approval is enabled.
  */
 export function isAfotAutoApproveShellEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (isAfotAutoApproveEnabled(config)) return true;
   if (_runtimeAutoApproveShell !== undefined) return _runtimeAutoApproveShell;
@@ -1302,7 +1410,7 @@ export function isAfotAutoApproveShellEnabled(
  * Checks whether unrestricted filesystem directory access is enabled.
  */
 export function isAfotAllowAllPathsEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (isAfotAutoApproveEnabled(config)) return true;
   if (_runtimeAllowAllPaths !== undefined) return _runtimeAllowAllPaths;
@@ -1328,7 +1436,7 @@ export function isAfotAllowAllPathsEnabled(
  * Checks whether workspace write/edit auto-approval is enabled.
  */
 export function isAfotAutoApproveWorkspaceWritesEnabled(
-  config: AfotConfig | null = readAfotConfig(),
+  config: AfotConfig | null = readPermissionConfig(),
 ): boolean {
   if (isAfotAutoApproveEnabled(config)) return true;
   if (_runtimeAutoApproveWorkspaceWrites !== undefined)
@@ -1341,6 +1449,48 @@ export function isAfotAutoApproveWorkspaceWritesEnabled(
     config?.autoApproveWorkspaceWrites === true ||
     config?.permissions?.autoApproveWorkspaceWrites === true
   );
+}
+
+function parseShellApproval(v: unknown): AfotShellApprovalMode | undefined {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim().toLowerCase();
+  return t === 'workspace' || t === 'ask' ? t : undefined;
+}
+
+/**
+ * Returns the shell approval mode. Precedence: runtime (slash command) >
+ * AFOT_SHELL_APPROVAL env > config.json. Defaults to 'ask'.
+ */
+export function getAfotShellApprovalMode(
+  config: AfotConfig | null = readPermissionConfig(),
+): AfotShellApprovalMode {
+  if (_runtimeShellApproval !== undefined) return _runtimeShellApproval;
+  const env = parseShellApproval(process.env['AFOT_SHELL_APPROVAL']);
+  if (env) return env;
+  return (
+    parseShellApproval(config?.permissions?.shellApproval) ??
+    parseShellApproval(config?.shellApproval) ??
+    'ask'
+  );
+}
+
+/**
+ * True (default) when tool/shell output is rendered in full.
+ * Precedence: env AFOT_FULL_OUTPUT (1/0) > config.fullOutput > true.
+ */
+export function isAfotFullOutputEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  const env = envFlag('AFOT_FULL_OUTPUT');
+  if (env !== undefined) return env;
+  return config?.fullOutput ?? true;
+}
+
+/** True when shell commands that stay inside the workspace skip the prompt. */
+export function isAfotWorkspaceShellEnabled(
+  config: AfotConfig | null = readAfotConfig(),
+): boolean {
+  return getAfotShellApprovalMode(config) === 'workspace';
 }
 
 /**
@@ -1410,7 +1560,11 @@ export function setAfotPermissions(
   if (permissions.allowedPaths !== undefined) {
     config.allowedPaths = permissions.allowedPaths;
   }
+  if (permissions.shellApproval !== undefined) {
+    config.shellApproval = permissions.shellApproval;
+  }
   atomicWriteFile(configPath, JSON.stringify(config, null, 2) + '\n', 0o600);
+  refreshAfotPermissionSnapshot();
   debugLogger.log('AFOT: Permissions configuration updated');
 }
 

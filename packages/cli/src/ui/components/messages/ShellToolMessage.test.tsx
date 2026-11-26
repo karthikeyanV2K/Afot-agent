@@ -58,9 +58,12 @@ describe('<ShellToolMessage />', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Legacy capped-output behaviour; full output is covered in toolLayoutUtils tests.
+    process.env['AFOT_FULL_OUTPUT'] = '0';
   });
 
   afterEach(() => {
+    delete process.env['AFOT_FULL_OUTPUT'];
     vi.useRealTimers();
   });
 

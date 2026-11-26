@@ -183,7 +183,7 @@ export interface ParsedCommandDetail {
   args?: string[];
 }
 
-interface CommandParseResult {
+export interface CommandParseResult {
   details: ParsedCommandDetail[];
   hasError: boolean;
   hasRedirection?: boolean;

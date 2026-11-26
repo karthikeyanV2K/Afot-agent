@@ -67,6 +67,8 @@ export * from './code_assist/admin/admin_controls.js';
 export * from './code_assist/admin/mcpUtils.js';
 export * from './core/apiKeyCredentialStorage.js';
 export * from './core/afotAuthStorage.js';
+export * from './core/afotAudit.js';
+export * from './core/afotProviderDiscovery.js';
 export * from './core/afotClineBridge.js';
 export * from './core/afotPathGuard.js';
 export * from './core/afotPluginLoader.js';

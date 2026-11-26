@@ -77,6 +77,7 @@ import {
 import {
   isAfotAutoApproveShellEnabled,
   isAfotAutoApproveEnabled,
+  isAfotWorkspaceShellEnabled,
 } from '../core/afotAuthStorage.js';
 
 export const OUTPUT_UPDATE_INTERVAL_MS = 1000;
@@ -319,9 +320,15 @@ export class ShellToolInvocation extends BaseToolInvocation<
     const modifiedBuildFiles = getModifiedBuildFiles(this.context.config);
     const isBuildCmd = isBuildOrTestCommand(command);
 
-    return (
-      untrustedFlags.length > 0 || (isBuildCmd && modifiedBuildFiles.length > 0)
-    );
+    // In AFOT workspace-shell mode, an edited build file (Cargo.toml, package.json…)
+    // alone does not force a prompt for every build/test: those commands run
+    // inside the workspace either way. Untrusted-provenance flags still do.
+    const buildFileRisk =
+      isBuildCmd &&
+      modifiedBuildFiles.length > 0 &&
+      !isAfotWorkspaceShellEnabled();
+
+    return untrustedFlags.length > 0 || buildFileRisk;
   }
 
   override getPolicyUpdateOptions(

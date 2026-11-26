@@ -37,10 +37,16 @@ import {
   isEcoModeActive,
   isAfotFailoverEnabled,
   isAfotEmbeddedToolParsingEnabled,
+  setAfotProviderKey,
 } from './afotAuthStorage.js';
+import { ensureFreshClineToken } from './afotClineBridge.js';
+import { classifyRateLimit } from './afotProviderDiscovery.js';
 import { OPENCODE_FREE_MODELS } from './opencodeConsoleAuth.js';
 import { debugLogger } from '../utils/debugLogger.js';
-import { TerminalQuotaError } from '../utils/googleQuotaErrors.js';
+import {
+  RetryableQuotaError,
+  TerminalQuotaError,
+} from '../utils/googleQuotaErrors.js';
 import { ModelNotFoundError } from '../utils/httpErrors.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -235,12 +241,16 @@ function detectConversationalTurn(rawContents: unknown): ConversationalDetection
 
 export class AfotOpenAIContentGenerator implements ContentGenerator {
   private client: OpenAI;
+  private currentKey: string;
+  /** Set after a provider says the request is too large; forces Eco prompts. */
+  private forceEco = false;
   private model: string;
   private readonly provider: AfotResolvedProvider;
   providerName: string;
 
   constructor(provider: AfotResolvedProvider, model: string) {
     this.provider = provider;
+    this.currentKey = provider.key;
     this.client = new OpenAI({
       apiKey: provider.key,
       baseURL: provider.baseUrl,
@@ -1023,6 +1033,40 @@ Directives:
       }
     }
 
+    // Generic OpenAI-compatible providers (Groq, Cerebras, GitHub Models, ...)
+    // report per-minute limits as 429 with a short wait. Those are retryable;
+    // only daily/plan quotas are terminal, and a single oversized request
+    // needs a smaller prompt, not a retry. OpenCode keeps its own handling.
+    if (
+      (status === 429 || status === 413) &&
+      (currentProvider || this.providerName) !== 'opencode' &&
+      errorType !== 'FreeUsageLimitError'
+    ) {
+      const verdict = classifyRateLimit(status, errorMessage, retryAfterSeconds);
+      const prov = currentProvider || this.providerName;
+      if (verdict.kind === 'too_large') {
+        this.forceEco = true;
+        throw new Error(
+          `${prov} rejected the request as too large for its limits (${errorMessage || status}). ` +
+            'AFOT switched to compact (Eco) prompts for this session: send your message again. ' +
+            'If it keeps failing, pick a model/tier with a larger context or token limit.',
+        );
+      }
+      if (verdict.kind === 'retryable') {
+        throw new RetryableQuotaError(
+          errorMessage || `Rate limited by ${prov}; retrying shortly.`,
+          undefined,
+          verdict.retryAfterSeconds,
+        );
+      }
+      throw new TerminalQuotaError(
+        errorMessage || `Quota exhausted on ${prov}.`,
+        undefined,
+        verdict.retryAfterSeconds,
+        'PROVIDER_QUOTA_EXHAUSTED',
+      );
+    }
+
     if (
       status === 429 ||
       errorType === 'FreeUsageLimitError' ||
@@ -1047,7 +1091,8 @@ Directives:
       const displayMsg =
         errorMessage.includes('Function') && errorMessage.includes('Not found for account')
           ? `Model "${modelName}" is not available on your ${provName} account. Please select an available model in /model.`
-          : errorMessage || `Model "${modelName}" is unavailable on ${provName}.`;
+          : (errorMessage || `Model "${modelName}" is unavailable on ${provName}.`) +
+            ` [AFOT: model lists change; run /provider models ${provName} for the live list, then /model.]`;
       throw new ModelNotFoundError(
         displayMsg,
         status || 404,
@@ -1062,6 +1107,11 @@ Directives:
       throw new Error(
         `Request timed out for model "${modelName}" on ${provName} (upstream server not responding). Please switch to an active model via /model (e.g. nvidia/nemotron-3.5-super-vl-120b-a12b).`,
       );
+    }
+
+    if (status === 401 && /^cline/.test(provName) && err instanceof Error) {
+      err.message +=
+        ' [AFOT: Cline token was rejected. Open Cline (VS Code or `cline auth`) once to re-authenticate, then retry; AFOT re-reads the token automatically.]';
     }
 
     throw err;
@@ -1409,6 +1459,29 @@ Directives:
     };
   }
 
+  /** Cline tokens expire/rotate outside AFOT; re-sync before each request. */
+  private async syncClineToken(): Promise<void> {
+    if (this.providerName !== 'cline-gui' && this.providerName !== 'cline-cli') {
+      return;
+    }
+    const { token, changed } = await ensureFreshClineToken(
+      this.providerName,
+      this.currentKey,
+    );
+    if (!changed) return;
+    this.currentKey = token;
+    this.client = new OpenAI({
+      apiKey: token,
+      baseURL: this.provider.baseUrl,
+      defaultHeaders: this.provider.headers,
+    });
+    try {
+      setAfotProviderKey(this.providerName, token);
+    } catch (e) {
+      debugLogger.log(`Could not persist refreshed Cline token: ${e}`);
+    }
+  }
+
   // ─── ContentGenerator interface ────────────────────────────────────────────
 
   async generateContent(
@@ -1416,6 +1489,7 @@ Directives:
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<GenerateContentResponse> {
+    await this.syncClineToken();
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
 
@@ -1427,7 +1501,8 @@ Directives:
     const reqObj = request as unknown as Record<string, unknown>;
     const conv = detectConversationalTurn(reqObj['contents']);
     const afotCfg = readAfotConfig();
-    const isEco = isEcoModeActive(afotCfg, effectiveProvider, finalModel);
+    const isEco =
+      this.forceEco || isEcoModeActive(afotCfg, effectiveProvider, finalModel);
     const isGreeting = conv.isGreeting;
 
     debugLogger.log(
@@ -1511,6 +1586,7 @@ Directives:
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<AsyncGenerator<GenerateContentResponse>> {
+    await this.syncClineToken();
     const reqModel = (request as { model?: string }).model;
     const modelToUse = this.resolveModelForProvider(reqModel);
 
@@ -1522,7 +1598,8 @@ Directives:
     const reqObj = request as unknown as Record<string, unknown>;
     const conv = detectConversationalTurn(reqObj['contents']);
     const afotCfg = readAfotConfig();
-    const isEco = isEcoModeActive(afotCfg, effectiveProvider, finalModel);
+    const isEco =
+      this.forceEco || isEcoModeActive(afotCfg, effectiveProvider, finalModel);
     const isGreeting = conv.isGreeting;
 
     debugLogger.log(

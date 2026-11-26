@@ -148,6 +148,28 @@ AFOT is built so that nothing leaves your machine, and nothing executes, unless 
 
 **Credentials:** `~/.afot/auth.json` and `config.json` are written atomically with mode `0600`. A corrupt `auth.json` makes AFOT stop with an error instead of silently replacing it.
 
+**Workspace shell approval (fewer prompts).** By default every shell command asks. To run commands that stay inside the workspace without a prompt:
+
+```
+/permissions shell workspace     # on  (saved to ~/.afot/config.json)
+/permissions shell ask           # off (default)
+```
+
+or `AFOT_SHELL_APPROVAL=workspace`, or `"shellApproval": "workspace"` in `config.json`. In `workspace` mode these **still ask**:
+
+| Category | Examples |
+| :--- | :--- |
+| Deletes | `rm`, `rmdir`, `del`, `rd`, `Remove-Item`, any `Remove-*`/`Clear-*`/`Stop-*` cmdlet, `find -delete`, `git rm`, `docker rm`, `kubectl delete`, `npm uninstall` |
+| Git history / discarding work | `git reset`, `revert`, `clean`, `restore`, `checkout -- .`, `rebase`, `push`, `stash drop`, `branch -D`, `commit --amend`, `git -c`, `git -C ..` |
+| Outside the workspace | any argument or redirect target resolving outside it (`../x`, `/etc`, `~`, `C:\other`, symlinks that leave it), `cd ..`, `cd ~` |
+| AFOT config | anything touching `~/.afot` |
+| Privilege / remote / system | `sudo`, `ssh`, `scp`, `rsync`, `kill`, `dd`, `npm i -g`, `cargo install`, `Set-ExecutionPolicy` |
+| Cannot be analysed | command substitution, loops, dynamic command names, odd quoting, `cmd.exe`, encoded PowerShell, `curl … \| sh` |
+
+This mode also stops the "build file changed, ask again" prompt for `cargo`/`npm`/`make`. DENY rules and explicit per-command ASK rules still win, and it does nothing in untrusted folders.
+
+**Limit:** this inspects the command *text*. `cargo test`, `npm test`, `python x.py` or `./run.sh` run their own code, which can delete or move anything. Real containment needs an OS sandbox.
+
 ---
 
 ## ⌨️ Useful Commands
@@ -207,3 +229,15 @@ AFOT CLI is a fork of [Gemini CLI](https://github.com/google-gemini/gemini-cli) 
 ## 📄 License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+## Audit log and state-directory guard
+
+- Shell commands that ran **without a prompt** (auto-approve, YOLO, workspace mode, allow rules) are appended to `~/.afot/audit.log` (JSONL, 0600, rotated at 5 MB; credentials are masked). Disable with `AFOT_AUDIT=0`.
+- Any shell command that mentions `~/.afot` / `$AFOT_HOME` (auth.json, config.json) **always asks**, even in YOLO. In non-interactive mode it is denied.
+- Permission flags from `config.json` are frozen when first read in a session. Editing the file mid-session does not widen permissions; use `/permissions`, or restart. Env vars and slash commands still apply immediately.
+
+## Providers: env keys, free tiers, rate limits
+
+- **Keys from the environment** (no auth.json needed): `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `SAMBANOVA_API_KEY`, `FIREWORKS_API_KEY`, `HYPERBOLIC_API_KEY`, `GITHUB_MODELS_TOKEN`, `HUGGINGFACE_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, and `AFOT_<NAME>_API_KEY` for any provider. `auth.json` wins if both exist. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, `GITHUB_TOKEN` are **not** auto-used (set `AFOT_OPENAI_API_KEY` etc. to opt in).
+- **Live models**: `/provider models <name>` and `/model` fetch the provider's `/models`; the built-in lists are only a fallback.
+- **Rate limits**: short per-minute 429s wait the server's `retry-after` and retry; daily/plan quotas stop with a clear message; a request that can never fit (`Requested > Limit`, HTTP 413) switches to compact Eco prompts for the session.
