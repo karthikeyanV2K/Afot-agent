@@ -504,8 +504,11 @@ class Ctx {
     this.lib = this.win ? path.win32 : path.posix;
     this.native = platform === process.platform;
     this.home = opts.homeDir ?? os.homedir();
-    this.parse = opts.parser?.parse ?? parseCommandDetails;
-    this.roots = opts.parser?.roots ?? getCommandRoots;
+    // Parse with the grammar of the shell under analysis, not the host's.
+    const shellKind = posix ? 'bash' : 'powershell';
+    this.parse =
+      opts.parser?.parse ?? ((c) => parseCommandDetails(c, shellKind));
+    this.roots = opts.parser?.roots ?? ((c) => getCommandRoots(c, shellKind));
   }
 
   private real(p: string): string {
@@ -1091,7 +1094,10 @@ function classifyCommand(
   if (!parsed || parsed.hasError || parsed.details.length === 0) {
     return ASK('command could not be parsed');
   }
-  if (parsed.hasCommandSubstitution || detectCommandSubstitution(cmd)) {
+  if (
+    parsed.hasCommandSubstitution ||
+    detectCommandSubstitution(cmd, ctx.posix ? 'bash' : 'powershell')
+  ) {
     return ASK('command substitution');
   }
   if (/<\(|>\(/.test(cmd)) return ASK('process substitution');
@@ -1103,7 +1109,19 @@ function classifyCommand(
   if (!segments) return ASK('unbalanced quotes');
 
   // Parser-differential guard: both parsers must see the same command names.
-  const treeNames = ctx.roots(cmd).map(baseName).sort();
+  // Env assignments are prefixes, not commands. Some host parsers (PowerShell)
+  // report `FOO=bar` as the command name; the real command is its first
+  // non-assignment argument, so resolve it there instead of failing closed.
+  const treeNames = ctx
+    .roots(cmd)
+    .map((name) => {
+      if (!isEnvAssignment(name)) return baseName(name);
+      const detail = parsed.details.find((d) => d.name === name);
+      const next = detail?.args?.find((a) => !isEnvAssignment(a));
+      return next ? baseName(next) : '';
+    })
+    .filter((n) => n.length > 0)
+    .sort();
   const ownNames = segments
     .map((s) => {
       const t = [...s.tokens];

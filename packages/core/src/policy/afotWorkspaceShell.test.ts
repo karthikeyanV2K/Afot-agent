@@ -18,6 +18,8 @@ let ws: string;
 let outside: string;
 let afotDir: string;
 
+// These suites describe POSIX/bash syntax. Pin the shell so the results do not
+// depend on the host OS (Windows defaults to PowerShell/cmd).
 const run = (
   command: string,
   extra: Partial<Parameters<typeof classifyWorkspaceShell>[1]> = {},
@@ -26,6 +28,7 @@ const run = (
     cwd: ws,
     workspaceDirs: [ws],
     afotDir,
+    shellKind: 'bash',
     ...extra,
   });
 
@@ -236,8 +239,10 @@ describe('ask: outside the workspace', () => {
   });
 
   it('honours explicitly granted extra directories', async () => {
-    await expectAsk(`cat ${path.join(outside, 'secret.txt')}`);
-    const v = await run(`cat ${path.join(outside, 'secret.txt')}`, {
+    // Forward slashes so the POSIX tokenizer does not eat Windows backslashes.
+    const target = path.join(outside, 'secret.txt').replace(/\\/g, '/');
+    await expectAsk(`cat ${target}`);
+    const v = await run(`cat ${target}`, {
       extraAllowedDirs: [outside],
     });
     expect(v).toEqual({ auto: true });
@@ -343,14 +348,23 @@ describe('Windows / PowerShell', () => {
   /** Emulates the PowerShell AST parser: one detail per CommandAst. */
   const psNames = (cmd: string): string[] => {
     const out: string[] = [];
+    // PowerShell backtick escapes the next character, so a backtick-quoted
+    // `"` is a literal quote and does NOT open a string for the AST.
+    const escaped = cmd.replace(/`[\s\S]/g, (m) => 'E'.repeat(m.length));
     // mask quoted strings so separators inside them are ignored, like the AST
-    const masked = cmd.replace(/'[^']*'|"[^"]*"/g, (q) => 'Q'.repeat(q.length));
+    const masked = escaped.replace(/'[^']*'|"[^"]*"/g, (q) =>
+      'Q'.repeat(q.length),
+    );
     let pos = 0;
     for (const seg of masked.split(/;|\|\||&&|\|/)) {
       const orig = cmd.slice(pos, pos + seg.length);
       pos += seg.length + 1;
       const m = /^\s*(?:&\s+)?([^\s]+)/.exec(orig);
-      if (m) out.push(m[1].replace(/^['"]|['"]$/g, ''));
+      if (m) {
+        const name = m[1].replace(/^['"]|['"]$/g, '');
+        // Skip bare escape placeholders (e.g. a lone backtick-quoted quote).
+        if (!/^E+$/.test(name)) out.push(name);
+      }
     }
     return out;
   };

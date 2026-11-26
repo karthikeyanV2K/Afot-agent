@@ -666,8 +666,22 @@ function parsePowerShellCommandDetails(
 
 export function parseCommandDetails(
   command: string,
+  shellKind?: 'bash' | 'powershell',
 ): CommandParseResult | null {
+  // When the caller states which shell the command is written for, parse with
+  // that grammar instead of the host's. This keeps analysis deterministic
+  // across platforms (e.g. bash commands inspected on Windows).
+  if (shellKind === 'bash') {
+    return parseBashCommandDetails(command);
+  }
+
   const configuration = getShellConfiguration();
+
+  // PowerShell grammar requested on a host without PowerShell: fail closed
+  // rather than silently parsing with the wrong grammar.
+  if (shellKind === 'powershell' && configuration.shell !== 'powershell') {
+    return null;
+  }
 
   if (configuration.shell === 'powershell') {
     const result = parsePowerShellCommandDetails(
@@ -883,12 +897,15 @@ export function getCommandRoot(command: string): string | undefined {
   return parsed.details[0]?.name;
 }
 
-export function getCommandRoots(command: string): string[] {
+export function getCommandRoots(
+  command: string,
+  shellKind?: 'bash' | 'powershell',
+): string[] {
   if (!command) {
     return [];
   }
 
-  const parsed = parseCommandDetails(command);
+  const parsed = parseCommandDetails(command, shellKind);
   if (!parsed || parsed.hasError) {
     return [];
   }
@@ -1471,12 +1488,26 @@ export async function* execStreaming(
   }
 }
 
-export function detectCommandSubstitution(command: string): boolean {
-  const shell = getShellConfiguration().shell;
-  const isPowerShell =
-    typeof shell === 'string' &&
-    (shell.toLowerCase().includes('powershell') ||
-      shell.toLowerCase().includes('pwsh'));
+/**
+ * @param shellKind Optional shell syntax to analyse. When omitted, the host's
+ *   configured shell is used (legacy behaviour). Callers that analyse a command
+ *   for a specific shell should pass it so the result does not depend on the
+ *   machine running the code (e.g. a PowerShell command on a Linux host).
+ */
+export function detectCommandSubstitution(
+  command: string,
+  shellKind?: 'bash' | 'powershell',
+): boolean {
+  let isPowerShell: boolean;
+  if (shellKind) {
+    isPowerShell = shellKind === 'powershell';
+  } else {
+    const shell = getShellConfiguration().shell;
+    isPowerShell =
+      typeof shell === 'string' &&
+      (shell.toLowerCase().includes('powershell') ||
+        shell.toLowerCase().includes('pwsh'));
+  }
   if (isPowerShell) {
     return detectPowerShellSubstitution(command);
   }
