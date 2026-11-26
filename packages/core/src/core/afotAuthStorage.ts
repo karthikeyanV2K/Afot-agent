@@ -43,6 +43,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { debugLogger } from '../utils/debugLogger.js';
+import { getEnvProviderKey, listEnvProviders } from './afotProviderDiscovery.js';
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -361,6 +362,35 @@ export function readAfotAuthFile(): AfotAuthFile | null {
   return readJsonFile<AfotAuthFile>(getAfotAuthFilePath());
 }
 
+/**
+ * auth.json plus providers whose key comes from the environment
+ * (GROQ_API_KEY, AFOT_<NAME>_API_KEY, ...). auth.json wins when both exist.
+ * Read-only view: never written back, so env keys are not persisted to disk.
+ */
+export function readAfotAuthFileWithEnv(): AfotAuthFile | null {
+  const file = readAfotAuthFile();
+  const cfg = readAfotConfig();
+  const envNames = listEnvProviders([
+    ...Object.keys(BUILTIN_PROVIDERS),
+    ...Object.keys(cfg?.providers ?? {}),
+  ]);
+  if (envNames.length === 0) return file;
+  const merged: AfotAuthFile = { ...(file ?? {}) };
+  for (const name of envNames) {
+    const existing = merged[name];
+    const hasKey =
+      existing?.type === 'api'
+        ? !!existing.key?.trim()
+        : existing?.type === 'oauth'
+          ? !!existing.access_token?.trim()
+          : false;
+    if (hasKey) continue;
+    const key = getEnvProviderKey(name);
+    if (key) merged[name] = { type: 'api', key };
+  }
+  return merged;
+}
+
 export function readAfotConfig(): AfotConfig | null {
   return readJsonFile<AfotConfig>(getAfotConfigFilePath());
 }
@@ -409,7 +439,7 @@ export function isEcoModeActive(
  * Lists all provider names that have a valid api-type entry in auth.json.
  */
 export function listAfotProviders(): string[] {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   if (!authFile) return [];
   return Object.entries(authFile)
     .filter(
@@ -431,7 +461,7 @@ export function getAllAfotProviderStatus(): Array<{
   models: string[];
   isLocal: boolean;
 }> {
-  const authFile = readAfotAuthFile() ?? {};
+  const authFile = readAfotAuthFileWithEnv() ?? {};
   const config = readAfotConfig();
 
   // Merge builtin definitions with any user-added ones
@@ -476,7 +506,7 @@ export function getAllAfotProviderStatus(): Array<{
  * Returns null if no usable provider is found.
  */
 export function resolveAfotProvider(): AfotResolvedProvider | null {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   if (!authFile) return null;
 
   const config = readAfotConfig();
@@ -563,7 +593,7 @@ export function resolveAfotProvider(): AfotResolvedProvider | null {
 export function resolveAfotProviderByName(
   providerName: string,
 ): AfotResolvedProvider | null {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   const entry = authFile?.[providerName];
   if (!entry) return null;
 
@@ -603,7 +633,7 @@ export function resolveAfotProviderByName(
 }
 
 export function resolveAfotActiveProviderName(): string | null {
-  const authFile = readAfotAuthFile();
+  const authFile = readAfotAuthFileWithEnv();
   if (!authFile) return null;
 
   const envProvider = process.env['AFOT_PROVIDER']?.trim();
@@ -1007,12 +1037,39 @@ export const BUILTIN_PROVIDERS: Record<
     baseUrl: 'https://api.groq.com/openai/v1',
     models: [
       'llama-3.3-70b-versatile',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
       'llama-3.1-8b-instant',
-      'moonshotai/kimi-k2-instruct',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
       'qwen/qwen3-32b',
-      'deepseek-r1-distill-llama-70b',
-      'compound-beta',
     ],
+    defaultModel: 'llama-3.3-70b-versatile',
+  },
+  // Free-tier OpenAI-compatible providers. Model lists here are only a
+  // fallback: /provider models and /model fetch the live list from /models.
+  cerebras: {
+    baseUrl: 'https://api.cerebras.ai/v1',
+    models: ['gpt-oss-120b', 'llama-3.3-70b', 'qwen-3-32b'],
+  },
+  sambanova: {
+    baseUrl: 'https://api.sambanova.ai/v1',
+    models: ['Meta-Llama-3.3-70B-Instruct', 'DeepSeek-V3-0324'],
+  },
+  fireworks: {
+    baseUrl: 'https://api.fireworks.ai/inference/v1',
+    models: ['accounts/fireworks/models/llama-v3p3-70b-instruct'],
+  },
+  hyperbolic: {
+    baseUrl: 'https://api.hyperbolic.xyz/v1',
+    models: ['meta-llama/Llama-3.3-70B-Instruct'],
+  },
+  github: {
+    baseUrl: 'https://models.github.ai/inference',
+    models: ['openai/gpt-4.1-mini', 'openai/gpt-4.1'],
+  },
+  huggingface: {
+    baseUrl: 'https://router.huggingface.co/v1',
+    models: ['meta-llama/Llama-3.3-70B-Instruct'],
   },
   mistral: {
     baseUrl: 'https://api.mistral.ai/v1',
