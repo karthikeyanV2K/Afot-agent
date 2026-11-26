@@ -68,9 +68,9 @@ describe('<MonitorPanel />', () => {
     });
     const f = lastFrame() ?? '';
     expect(f).toContain('STEPS');
-    expect(f).toContain('[x] read file');
-    expect(f).toContain('[~] cargo test --lib');
-    expect(f).toContain('[ ] cargo clippy');
+    expect(f).toContain('[x] 1. read file');
+    expect(f).toContain('[~] 2. cargo test --lib');
+    expect(f).toContain('[ ] 3. cargo clippy');
     unmount();
   });
 });

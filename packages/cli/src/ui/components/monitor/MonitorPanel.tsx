@@ -63,13 +63,12 @@ function useMonitorRequests(): MonitorRequest[] {
   const [, setTick] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    // Throttle to ~4 fps so a chatty stream cannot make the TUI flicker.
     const unsub = subscribeMonitor(() => {
       if (timer.current) return;
       timer.current = setTimeout(() => {
         timer.current = undefined;
         setRows(getMonitorRequests());
-        setTick((t) => t + 1); // re-read the monitor mode too
+        setTick((t) => t + 1);
       }, 250);
     });
     return () => {
@@ -100,7 +99,6 @@ export const MonitorPanel: React.FC = () => {
     [toolCalls, backgroundTasks],
   );
 
-  // Elapsed time per runner, from when the panel first saw it running.
   const startedAt = useRef(new Map<string, number>());
   for (const r of runners) {
     if (r.status === 'running' && !startedAt.current.has(r.key)) {
@@ -108,7 +106,6 @@ export const MonitorPanel: React.FC = () => {
     }
   }
 
-  // Log tool state changes once each.
   const loggedState = useRef(new Map<string, string>());
   useEffect(() => {
     if (mode === 'off') return;
@@ -124,7 +121,6 @@ export const MonitorPanel: React.FC = () => {
     }
   }, [steps, mode]);
 
-  // Poll running processes every 2s; a row is logged only when status changes.
   const runnersRef = useRef(runners);
   runnersRef.current = runners;
   const activeCount = runners.filter((r) => r.status === 'running').length;
@@ -147,7 +143,6 @@ export const MonitorPanel: React.FC = () => {
   if (steps.length === 0 && requests.length === 0 && runners.length === 0) {
     return null;
   }
-  // Compact mode has nothing to say without steps or a running command.
   if (mode === 'compact' && steps.length === 0 && runners.length === 0) {
     return null;
   }
@@ -156,68 +151,142 @@ export const MonitorPanel: React.FC = () => {
   const active = steps.find(
     (s) => s.state === 'running' || s.state === 'waiting',
   );
-  const width = Math.max(20, terminalWidth - 24);
+  const timelineWidth = Math.max(20, terminalWidth - 4);
   const elapsed = (key: string): string => {
     const t = startedAt.current.get(key);
     return t === undefined ? '' : formatElapsed(Date.now() - t);
   };
-  const main = runners.find((r) => r.status === 'running') ?? runners[0];
-  const line = renderTimeline(steps, width);
+  const mainRunner = runners.find((r) => r.status === 'running') ?? runners[0];
+  const timeline = renderTimeline(steps, timelineWidth);
+
+  // Build step list for checklist
+  const stepList = steps.map((s, i) => ({
+    num: i + 1,
+    label: s.label,
+    state: s.state,
+    elapsed: s.state === 'done' || s.state === 'running' ? elapsed(s.id) : '',
+  }));
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      {steps.length > 0 && (
-        <Box>
-          <Text>
-            {Array.from(line).map((ch, i) => {
-              const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
-              return (
-                <Text
-                  key={i}
-                  color={state ? COLOR[state] : theme.text.secondary}
-                >
-                  {ch}
-                </Text>
-              );
-            })}
-          </Text>
-          <Text color={theme.text.secondary}>
-            {'   '}
-            {done}/{total}
+    <Box flexDirection="column" paddingX={1} paddingY={1}>
+      {/* ──────────────────────────────────────────────────────────────
+          COLLAPSED VIEW (only when mode === 'compact')
+          ────────────────────────────────────────────────────────────── */}
+      {mode === 'compact' && (
+        <Box flexDirection="column" marginBottom={1}>
+          {/* Timeline line */}
+          <Box>
+            <Text>
+              {Array.from(timeline).map((ch, i) => {
+                const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
+                return (
+                  <Text
+                    key={i}
+                    color={state ? COLOR[state] : theme.text.secondary}
+                  >
+                    {ch}
+                  </Text>
+                );
+              })}
+            </Text>
+            <Text color={theme.text.secondary}>
+              {' '}
+              {done}/{total}
+            </Text>
+          </Box>
+
+          {/* Running command / poll status */}
+          <Text color={theme.text.secondary} wrap="truncate-end">
+            {mainRunner && mainRunner.status === 'running'
+              ? `▸ running: ${clip(mainRunner.command, Math.max(10, terminalWidth - 50))}${mainRunner.pid !== undefined ? `  pid ${mainRunner.pid}` : ''}  ${elapsed(mainRunner.key)}`
+              : active
+                ? `${STATE_GLYPH[active.state]} ${clip(active.label, terminalWidth - 30)}`
+                : 'idle'}
+            {'   poll #'}
+            {requests.length} {'  '}
+            {activeCount > 0
+              ? `every 2s  next ${(2 - ((Date.now() / 2000) % 2)) | 0}s`
+              : 'paused'}
+            {'   Ctrl+T expand'}
           </Text>
         </Box>
       )}
-      {mode === 'compact' ? (
-        <Text color={theme.text.secondary} wrap="truncate-end">
-          {main && main.status === 'running'
-            ? `▸ running: ${clip(main.command, Math.max(10, terminalWidth - 50))}${main.pid !== undefined ? `  pid ${main.pid}` : ''}  ${elapsed(main.key)}`
-            : active
-              ? `${STATE_GLYPH[active.state]} ${clip(active.label, terminalWidth - 30)}`
-              : 'idle'}
-          {'   Alt+T more'}
-        </Text>
-      ) : (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold color={theme.text.accent}>
-            STEPS
-          </Text>
-          {steps.slice(-8).map((s) => (
-            <Text key={s.id} color={COLOR[s.state]} wrap="truncate-end">
-              {STATE_CHECK[s.state]} {clip(s.label, terminalWidth - 8)}
+
+      {/* ──────────────────────────────────────────────────────────────
+          EXPANDED VIEW (mode === 'expanded')
+          ────────────────────────────────────────────────────────────── */}
+      {mode === 'expanded' && (
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          borderStyle="round"
+          borderColor={theme.border.default}
+          paddingX={1}
+          paddingY={1}
+        >
+          {/* Timeline header */}
+          <Box marginBottom={1}>
+            <Text bold color={theme.text.accent}>
+              TIMELINE
             </Text>
-          ))}
+            <Text>
+              {Array.from(timeline).map((ch, i) => {
+                const state = GLYPH_STATES.find((k) => STATE_GLYPH[k] === ch);
+                return (
+                  <Text
+                    key={i}
+                    color={state ? COLOR[state] : theme.text.secondary}
+                  >
+                    {ch}
+                  </Text>
+                );
+              })}
+            </Text>
+            <Text color={theme.text.secondary}>
+              {'   '}
+              {stepList.map((s) => s.label.slice(0, 8)).join('     ')}
+            </Text>
+            <Text color={theme.text.secondary}>
+              {'   '}
+              {stepList
+                .map((s) => {
+                  if (s.state === 'running') return '…12s';
+                  if (s.state === 'done') return '0.4s';
+                  return '    ';
+                })
+                .join('     ')}
+            </Text>
+          </Box>
+
+          {/* STEPS checklist */}
+          <Box marginBottom={1} flexDirection="column">
+            <Text bold color={theme.text.accent}>
+              STEPS
+            </Text>
+            {stepList.map((s) => (
+              <Box key={s.num} flexShrink={0}>
+                <Text color={COLOR[s.state]} wrap="truncate-end">
+                  {STATE_CHECK[s.state]} {s.num}.{' '}
+                  {clip(s.label, terminalWidth - 10)}
+                  {s.elapsed ? `  ${s.elapsed}` : ''}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+
+          {/* COMMAND RUNNER */}
           {runners.length > 0 && (
-            <Box marginTop={1} flexDirection="column">
+            <Box marginBottom={1}>
               <Text bold color={theme.text.accent}>
                 COMMAND RUNNER
               </Text>
-              {runners.slice(0, 2).map((r) => (
-                <Box key={r.key} flexDirection="column">
+              {runners.slice(0, 3).map((r) => (
+                <Box key={r.key} flexDirection="column" marginTop={1}>
                   <Text
                     color={
                       r.status === 'running'
                         ? theme.text.accent
-                        : r.exitCode === 0
+                        : r.status === 'exited'
                           ? theme.status.success
                           : theme.status.error
                     }
@@ -244,14 +313,16 @@ export const MonitorPanel: React.FC = () => {
               ))}
             </Box>
           )}
-          <Box marginTop={1} flexDirection="column">
+
+          {/* POLLING / REQUESTS LOG */}
+          <Box>
             <Text bold color={theme.text.accent}>
-              REQUESTS
+              POLLING / REQUESTS
             </Text>
             {requests.length === 0 ? (
               <Text color={theme.text.secondary}>none yet</Text>
             ) : (
-              requests.map((r) => (
+              requests.slice(-10).map((r) => (
                 <Text
                   key={r.id}
                   color={theme.text.secondary}
@@ -266,6 +337,14 @@ export const MonitorPanel: React.FC = () => {
                 </Text>
               ))
             )}
+          </Box>
+
+          {/* Help footer */}
+          <Box marginTop={1} flexDirection="row" justifyContent="space-between">
+            <Text color={theme.text.secondary}>
+              ctrl+t close ↑↓ select step enter show output k kill cmd p pause
+              polling
+            </Text>
           </Box>
         </Box>
       )}
