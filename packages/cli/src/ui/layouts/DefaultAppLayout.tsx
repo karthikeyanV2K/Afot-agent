@@ -10,6 +10,7 @@ import { Notifications } from '../components/Notifications.js';
 import { MainContent } from '../components/MainContent.js';
 import { DialogManager } from '../components/DialogManager.js';
 import { Composer } from '../components/Composer.js';
+import { MonitorPanel } from '../components/monitor/MonitorPanel.js';
 import { ExitWarning } from '../components/ExitWarning.js';
 import { useUIState } from '../contexts/UIStateContext.js';
 import { useFlickerDetector } from '../hooks/useFlickerDetector.js';
@@ -91,7 +92,10 @@ export const DefaultAppLayout: React.FC = () => {
               addItem={uiState.historyManager.addItem}
             />
           ) : (
-            <Composer isFocused={true} />
+            <>
+              <MonitorPanel />
+              <Composer isFocused={true} />
+            </>
           )}
 
           <ExitWarning />

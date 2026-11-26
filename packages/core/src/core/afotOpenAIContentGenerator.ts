@@ -41,6 +41,7 @@ import {
 } from './afotAuthStorage.js';
 import { ensureFreshClineToken } from './afotClineBridge.js';
 import { classifyRateLimit } from './afotProviderDiscovery.js';
+import { recordMonitorRequest, updateMonitorRequest } from './afotMonitor.js';
 import { OPENCODE_FREE_MODELS } from './opencodeConsoleAuth.js';
 import { debugLogger } from '../utils/debugLogger.js';
 import {
@@ -1486,6 +1487,36 @@ Directives:
 
   async generateContent(
     request: GenerateContentParameters,
+    userPromptId: string,
+    role: LlmRole,
+  ): Promise<GenerateContentResponse> {
+    const t0 = Date.now();
+    const id = recordMonitorRequest({
+      type: 'llm',
+      target: this.model,
+      status: 'sent',
+    });
+    try {
+      const res = await this.generateContentImpl(request, userPromptId, role);
+      updateMonitorRequest(id, {
+        status: 'ok',
+        ms: Date.now() - t0,
+        tokensIn: res.usageMetadata?.promptTokenCount,
+        tokensOut: res.usageMetadata?.candidatesTokenCount,
+      });
+      return res;
+    } catch (e) {
+      const st = (e as { status?: number } | null)?.status;
+      updateMonitorRequest(id, {
+        status: st ? String(st) : 'error',
+        ms: Date.now() - t0,
+      });
+      throw e;
+    }
+  }
+
+  private async generateContentImpl(
+    request: GenerateContentParameters,
     _userPromptId: string,
     _role: LlmRole,
   ): Promise<GenerateContentResponse> {
@@ -1582,6 +1613,58 @@ Directives:
   }
 
   async generateContentStream(
+    request: GenerateContentParameters,
+    userPromptId: string,
+    role: LlmRole,
+  ): Promise<AsyncGenerator<GenerateContentResponse>> {
+    const t0 = Date.now();
+    const id = recordMonitorRequest({
+      type: 'llm',
+      target: this.model,
+      status: 'sent',
+    });
+    let inner: AsyncGenerator<GenerateContentResponse>;
+    try {
+      inner = await this.generateContentStreamImpl(
+        request,
+        userPromptId,
+        role,
+      );
+    } catch (e) {
+      const st = (e as { status?: number } | null)?.status;
+      updateMonitorRequest(id, {
+        status: st ? String(st) : 'error',
+        ms: Date.now() - t0,
+      });
+      throw e;
+    }
+    return (async function* () {
+      let tin: number | undefined;
+      let tout: number | undefined;
+      try {
+        for await (const chunk of inner) {
+          tin = chunk.usageMetadata?.promptTokenCount ?? tin;
+          tout = chunk.usageMetadata?.candidatesTokenCount ?? tout;
+          yield chunk;
+        }
+        updateMonitorRequest(id, {
+          status: 'ok',
+          ms: Date.now() - t0,
+          tokensIn: tin,
+          tokensOut: tout,
+        });
+      } catch (e) {
+        const st = (e as { status?: number } | null)?.status;
+        updateMonitorRequest(id, {
+          status: st ? String(st) : 'error',
+          ms: Date.now() - t0,
+        });
+        throw e;
+      }
+    })();
+  }
+
+  private async generateContentStreamImpl(
     request: GenerateContentParameters,
     _userPromptId: string,
     _role: LlmRole,

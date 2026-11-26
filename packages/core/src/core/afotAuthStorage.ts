@@ -39,6 +39,7 @@
  *   3. First entry in auth.json
  */
 
+import { notifyMonitorChange } from './afotMonitor.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -241,6 +242,8 @@ export interface AfotConfig {
   autoApproveShell?: boolean;
   /** Show tool/shell output in full (no "N lines hidden"). Default true. */
   fullOutput?: boolean;
+  /** Live monitor panel: off | compact | expanded. Default off. */
+  monitor?: string;
   /** Auto-approve workspace file edits and writes */
   autoApproveWorkspaceWrites?: boolean;
   /** Allow access to any directory outside current working directory without prompts */
@@ -1484,6 +1487,52 @@ export function isAfotFullOutputEnabled(
   const env = envFlag('AFOT_FULL_OUTPUT');
   if (env !== undefined) return env;
   return config?.fullOutput ?? true;
+}
+
+export type AfotMonitorMode = 'off' | 'compact' | 'expanded';
+let _runtimeMonitor: AfotMonitorMode | undefined;
+
+export function setAfotMonitorRuntime(mode: AfotMonitorMode | undefined): void {
+  _runtimeMonitor = mode;
+  notifyMonitorChange();
+}
+
+/** off -> compact -> expanded -> off. Persisting is best-effort. */
+export function cycleAfotMonitorMode(): AfotMonitorMode {
+  const order: AfotMonitorMode[] = ['off', 'compact', 'expanded'];
+  const next = order[(order.indexOf(getAfotMonitorMode()) + 1) % order.length]!;
+  try {
+    setAfotMonitorMode(next);
+  } catch {
+    setAfotMonitorRuntime(next);
+  }
+  return next;
+}
+
+/** Sets the monitor mode for this session and persists it to config.json. */
+export function setAfotMonitorMode(mode: AfotMonitorMode): void {
+  _runtimeMonitor = mode;
+  notifyMonitorChange();
+  ensureAfotDir();
+  const config = readAfotConfigStrict() ?? generateDefaultConfigFile();
+  config.monitor = mode;
+  atomicWriteFile(
+    getAfotConfigFilePath(),
+    JSON.stringify(config, null, 2) + '\n',
+    0o600,
+  );
+}
+
+/** Precedence: runtime > env AFOT_MONITOR > config.monitor > "off". */
+export function getAfotMonitorMode(
+  config: AfotConfig | null = readAfotConfig(),
+): AfotMonitorMode {
+  const ok = (v: unknown): v is AfotMonitorMode =>
+    v === 'off' || v === 'compact' || v === 'expanded';
+  if (_runtimeMonitor !== undefined) return _runtimeMonitor;
+  const env = process.env['AFOT_MONITOR']?.trim().toLowerCase();
+  if (ok(env)) return env;
+  return ok(config?.monitor) ? config.monitor : 'off';
 }
 
 /** True when shell commands that stay inside the workspace skip the prompt. */

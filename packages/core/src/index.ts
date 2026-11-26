@@ -69,6 +69,7 @@ export * from './core/apiKeyCredentialStorage.js';
 export * from './core/afotAuthStorage.js';
 export * from './core/afotAudit.js';
 export * from './core/afotProviderDiscovery.js';
+export * from './core/afotMonitor.js';
 export * from './core/afotClineBridge.js';
 export * from './core/afotPathGuard.js';
 export * from './core/afotPluginLoader.js';

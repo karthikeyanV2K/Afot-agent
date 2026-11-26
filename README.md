@@ -241,3 +241,13 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 - **Keys from the environment** (no auth.json needed): `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `SAMBANOVA_API_KEY`, `FIREWORKS_API_KEY`, `HYPERBOLIC_API_KEY`, `GITHUB_MODELS_TOKEN`, `HUGGINGFACE_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, and `AFOT_<NAME>_API_KEY` for any provider. `auth.json` wins if both exist. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, `GITHUB_TOKEN` are **not** auto-used (set `AFOT_OPENAI_API_KEY` etc. to opt in).
 - **Live models**: `/provider models <name>` and `/model` fetch the provider's `/models`; the built-in lists are only a fallback.
 - **Rate limits**: short per-minute 429s wait the server's `retry-after` and retry; daily/plan quotas stop with a clear message; a request that can never fit (`Requested > Limit`, HTTP 413) switches to compact Eco prompts for the session.
+
+## Live monitor
+
+`/monitor off|compact|expanded` (or `AFOT_MONITOR`, or `monitor` in `~/.afot/config.json`; default off) shows a timeline above the input:
+
+```
+●──●──◉──○──○      2/5
+```
+
+`●` done, `◉` running, `○` pending, `✗` failed (line stops), `⚠` waiting for approval. Expanded adds the step list and a request log (time, model, status, ms, tokens). Metadata only: no prompts, arguments or keys are stored.

@@ -99,3 +99,28 @@ export function getAllToolCalls(
     .filter((item): item is HistoryItemToolGroup => item.type === 'tool_group')
     .flatMap((group) => group.tools);
 }
+
+/**
+ * Tool calls of the current turn: finished ones from history (after the last
+ * user prompt) plus those still pending. Pending entries win on duplicates.
+ */
+export function getLastTurnToolCalls(
+  history: HistoryItem[],
+  pendingHistoryItems: HistoryItemWithoutId[],
+): IndividualToolCallDisplay[] {
+  let lastUser = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const type = history[i].type;
+    if (type === 'user' || type === 'user_shell') {
+      lastUser = i;
+      break;
+    }
+  }
+  const pending = getAllToolCalls(pendingHistoryItems);
+  const pendingIds = new Set(pending.map((c) => c.callId));
+  const done = history
+    .slice(lastUser + 1)
+    .flatMap((item) => (item.type === 'tool_group' ? item.tools : []))
+    .filter((c) => !pendingIds.has(c.callId));
+  return [...done, ...pending];
+}

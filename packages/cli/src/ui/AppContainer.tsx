@@ -90,6 +90,7 @@ import {
   LegacyAgentProtocol,
   type InjectionSource,
   isAfotFullOutputEnabled,
+  cycleAfotMonitorMode,
 } from '@google/gemini-cli-core';
 import { validateAuthMethod } from '../config/auth.js';
 import process from 'node:process';
@@ -2239,6 +2240,9 @@ export const AppContainer = (props: AppContainerProps) => {
         } else {
           setShowErrorDetails((prev) => !prev);
         }
+        return true;
+      } else if (keyMatchers[Command.CYCLE_MONITOR](key)) {
+        cycleAfotMonitorMode();
         return true;
       } else if (keyMatchers[Command.SHOW_FULL_TODOS](key)) {
         setShowFullTodos((prev) => !prev);
