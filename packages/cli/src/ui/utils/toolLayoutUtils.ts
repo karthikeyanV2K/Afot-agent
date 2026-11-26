@@ -74,6 +74,8 @@ export function calculateToolContentMaxLines(options: {
  * 1. Process Status: Active (Executing) vs Completed.
  * 2. UI Focus: Whether the user is currently interacting with the shell.
  * 3. Expansion State: Whether the user has explicitly requested to "Show More Lines" (CTRL+O).
+ * 4. Full Output Mode: Whether the user wants untruncated output (AFOT_FULL_OUTPUT).
+ * 5. Buffer Mode: Alternate buffer shells are scrollable, so they can show more.
  */
 export function calculateShellMaxLines(options: {
   status: CoreToolCallStatus;
@@ -97,13 +99,18 @@ export function calculateShellMaxLines(options: {
     return undefined;
   }
 
-  // 1b. AFOT full-output mode: finished shell output is never truncated.
-  // Running commands keep the live-area cap so the terminal doesn't flicker.
-  if (
-    status !== CoreToolCallStatus.Executing &&
-    isAfotFullOutputEnabled()
-  ) {
-    return undefined;
+  // 1b. AFOT full-output mode: shell output is never truncated.
+  // This applies to both executing and completed shells.
+  // In alternate buffer mode, the shell is scrollable so unlimited is fine.
+  // In standard mode, we still cap to avoid scrollback churn.
+  if (isAfotFullOutputEnabled()) {
+    if (isAlternateBuffer) {
+      return undefined;
+    }
+    // In standard mode, only completed shells get unlimited to avoid redraw churn.
+    if (status !== CoreToolCallStatus.Executing) {
+      return undefined;
+    }
   }
 
   // 2. Handle cases where height is unknown (Standard mode history).
