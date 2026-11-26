@@ -52,6 +52,14 @@ vi.mock('../hooks/useAlternateBuffer.js', () => ({
   useAlternateBuffer: vi.fn(() => false),
 }));
 
+vi.mock('../hooks/useMouseClick.js', () => ({
+  useMouseClick: vi.fn(),
+}));
+
+vi.mock('../hooks/useMouseScroll.js', () => ({
+  useMouseScroll: vi.fn(),
+}));
+
 vi.mock('../contexts/ConfigContext.js', () => ({
   useConfig: () => ({
     getAccessibility: vi.fn(() => ({

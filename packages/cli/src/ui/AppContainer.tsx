@@ -129,6 +129,10 @@ import { useFocus } from './hooks/useFocus.js';
 import { useKeypress, type Key } from './hooks/useKeypress.js';
 import { KeypressPriority } from './contexts/KeypressContext.js';
 import { Command } from './key/keyMatchers.js';
+import {
+  toggleAgentDock,
+  toggleAgentDockView,
+} from './components/dock/agentDockStore.js';
 import { useLoadingIndicator } from './hooks/useLoadingIndicator.js';
 import { useShellInactivityStatus } from './hooks/useShellInactivityStatus.js';
 import { useFolderTrust } from './hooks/useFolderTrust.js';
@@ -1687,6 +1691,7 @@ export const AppContainer = (props: AppContainerProps) => {
       handleHintSubmit,
       isConfigInitialized,
       triggerExpandHint,
+      defaultConstrainHeight,
     ],
   );
 
@@ -2244,6 +2249,12 @@ export const AppContainer = (props: AppContainerProps) => {
       } else if (keyMatchers[Command.CYCLE_MONITOR](key)) {
         cycleAfotMonitorMode();
         return true;
+      } else if (keyMatchers[Command.TOGGLE_AGENT_DOCK](key)) {
+        toggleAgentDock();
+        return true;
+      } else if (keyMatchers[Command.TOGGLE_AGENT_DOCK_VIEW](key)) {
+        toggleAgentDockView();
+        return true;
       } else if (keyMatchers[Command.SHOW_FULL_TODOS](key)) {
         setShowFullTodos((prev) => !prev);
         return true;
@@ -2349,6 +2360,7 @@ export const AppContainer = (props: AppContainerProps) => {
     [
       constrainHeight,
       setConstrainHeight,
+      defaultConstrainHeight,
       setShowErrorDetails,
       config,
       ideContextState,

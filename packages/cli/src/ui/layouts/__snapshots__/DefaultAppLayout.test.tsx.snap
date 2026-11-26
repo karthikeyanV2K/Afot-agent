@@ -4,6 +4,7 @@ exports[`<DefaultAppLayout /> > hides BackgroundTaskDisplay when StreamingState 
 "MainContent
 Notifications
 CopyModeWarning
+ ▸ AFOT Swarm · 1 agent                                                   Alt+A
 Composer
 ExitWarning
 "
@@ -18,6 +19,7 @@ BackgroundTaskDisplay
 
 Notifications
 CopyModeWarning
+ ▸ AFOT Swarm · 1 agent                                                   Alt+A
 Composer
 ExitWarning
 "
@@ -32,6 +34,7 @@ BackgroundTaskDisplay
 
 Notifications
 CopyModeWarning
+ ▸ AFOT Swarm · 1 agent                                                   Alt+A
 Composer
 ExitWarning
 "

@@ -11,6 +11,9 @@ import { MainContent } from '../components/MainContent.js';
 import { DialogManager } from '../components/DialogManager.js';
 import { Composer } from '../components/Composer.js';
 import { MonitorPanel } from '../components/monitor/MonitorPanel.js';
+import { AgentBar } from '../components/dock/AgentBar.js';
+import { AgentDock } from '../components/dock/AgentDock.js';
+import { useAgentRoster } from '../components/dock/useAgentRoster.js';
 import { ExitWarning } from '../components/ExitWarning.js';
 import { useUIState } from '../contexts/UIStateContext.js';
 import { useFlickerDetector } from '../hooks/useFlickerDetector.js';
@@ -24,6 +27,7 @@ export const DefaultAppLayout: React.FC = () => {
   const uiState = useUIState();
   const { copyModeEnabled } = useInputState();
   const isAlternateBuffer = useAlternateBuffer();
+  const agentRoster = useAgentRoster();
 
   const { rootUiRef, terminalHeight } = uiState;
   useFlickerDetector(rootUiRef, terminalHeight);
@@ -94,7 +98,9 @@ export const DefaultAppLayout: React.FC = () => {
           ) : (
             <>
               <MonitorPanel />
+              <AgentBar roster={agentRoster} />
               <Composer isFocused={true} />
+              <AgentDock roster={agentRoster} />
             </>
           )}
 
