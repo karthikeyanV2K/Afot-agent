@@ -126,31 +126,23 @@ export const SpecTimeline: React.FC<SpecTimelineProps> = ({
   const formatElapsed = (ms?: number): string => {
     if (!ms || ms < 0) return '';
     const s = Math.floor(ms / 1000);
-    return s < 60
-      ? `${s}s`
-      : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
   };
 
   const renderTask = (task: SpecTask, width: number) => {
     const glyph = TASK_STATE_GLYPH[task.state];
-    const depStr =
-      task.dependencies.length > 0
-        ? ` \u21B3 ${task.dependencies.join(', ')}`
-        : '';
+    const depStr = task.dependencies.length > 0 ? ` \u21B3 ${task.dependencies.join(', ')}` : '';
     const elapsed = task.elapsedMs ? ` ${formatElapsed(task.elapsedMs)}` : '';
     return (
       <Box key={task.id} flexDirection="row" marginLeft={2}>
         <Text color={TASK_STATE_COLOR[task.state]}>{glyph} </Text>
-        <Text
-          bold
-          color={
-            task.state === 'running' ? theme.text.accent : theme.text.primary
-          }
-        >
+        <Text bold color={task.state === 'running' ? theme.text.accent : theme.text.primary}>
           {task.title}
         </Text>
         <Text color={theme.text.secondary}>
-          {'  '}[{task.worker}]{depStr}
+          {'  '}
+          [{task.worker}]
+          {depStr}
           {elapsed}
         </Text>
       </Box>
@@ -160,30 +152,16 @@ export const SpecTimeline: React.FC<SpecTimelineProps> = ({
   if (!state) {
     // Show "create spec" prompt
     return (
-      <Box
-        flexDirection="column"
-        paddingX={1}
-        paddingY={1}
-        borderStyle="round"
-        borderColor={theme.border.default}
-      >
-        <Text bold color={theme.text.accent}>
-          SPEC TIMELINE
-        </Text>
+      <Box flexDirection="column" paddingX={1} paddingY={1} borderStyle="round" borderColor={theme.border.default}>
+        <Text bold color={theme.text.accent}>SPEC TIMELINE</Text>
         <Box marginTop={1}>
-          <Text color={theme.text.secondary}>
-            Enter a goal to generate a spec, e.g.:
-          </Text>
+          <Text color={theme.text.secondary}>Enter a goal to generate a spec, e.g.:</Text>
         </Box>
         <Box marginTop={1}>
-          <Text color={theme.text.accent}>
-            /spec "rewrite the parser to rust"
-          </Text>
+          <Text color={theme.text.accent}>/spec "rewrite the parser to rust"</Text>
         </Box>
         <Box>
-          <Text color={theme.text.accent}>
-            /spec "migrate auth to JWT with tests"
-          </Text>
+          <Text color={theme.text.accent}>/spec "migrate auth to JWT with tests"</Text>
         </Box>
       </Box>
     );
@@ -191,24 +169,13 @@ export const SpecTimeline: React.FC<SpecTimelineProps> = ({
 
   if (showConfirm && pendingPlan) {
     return (
-      <Box
-        flexDirection="column"
-        paddingX={1}
-        paddingY={1}
-        borderStyle="round"
-        borderColor={theme.border.default}
-      >
-        <Text bold color={theme.text.accent}>
-          CONFIRM SPEC
-        </Text>
+      <Box flexDirection="column" paddingX={1} paddingY={1} borderStyle="round" borderColor={theme.border.default}>
+        <Text bold color={theme.text.accent}>CONFIRM SPEC</Text>
         <Box marginTop={1}>
           <Text color={theme.text.secondary}>Title: {pendingPlan.title}</Text>
         </Box>
         <Box>
-          <Text color={theme.text.secondary}>
-            Tasks: {pendingPlan.tasks.length} | Waves:{' '}
-            {pendingPlan.waves.length}
-          </Text>
+          <Text color={theme.text.secondary}>Tasks: {pendingPlan.tasks.length} | Waves: {pendingPlan.waves.length}</Text>
         </Box>
         <Box flexDirection="row" marginTop={1}>
           <Box marginRight={2}>
@@ -226,19 +193,11 @@ export const SpecTimeline: React.FC<SpecTimelineProps> = ({
   }
 
   return (
-    <Box
-      flexDirection="column"
-      paddingX={1}
-      paddingY={1}
-      borderStyle="round"
-      borderColor={theme.border.default}
-    >
+    <Box flexDirection="column" paddingX={1} paddingY={1} borderStyle="round" borderColor={theme.border.default}>
       {/* Header */}
       <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
         <Box flexDirection="row">
-          <Text bold color={theme.text.accent}>
-            SPEC:{' '}
-          </Text>
+          <Text bold color={theme.text.accent}>SPEC: </Text>
           <Text color={theme.text.primary}>{shortenTitle(state.goal)}</Text>
         </Box>
         <Text color={theme.text.secondary}>
@@ -248,27 +207,17 @@ export const SpecTimeline: React.FC<SpecTimelineProps> = ({
 
       {/* Phases */}
       {state.phases.map((phase, idx) => (
-        <Box
-          key={phase.id}
-          marginTop={idx === 0 ? 0 : 1}
-          flexDirection="column"
-        >
+        <Box key={phase.id} marginTop={idx === 0 ? 0 : 1} flexDirection="column">
           <Box flexDirection="row" alignItems="center">
             <Text
               bold={phase.state === 'active'}
               color={PHASE_COLOR[phase.state]}
             >
-              {phase.state === 'done'
-                ? '\u2713'
-                : phase.state === 'active'
-                  ? '\u25B8'
-                  : '\u25CB'}{' '}
-              {phase.name}
+              {phase.state === 'done' ? '\u2713' : phase.state === 'active' ? '\u25B8' : '\u25CB'} {phase.name}
             </Text>
             <Box marginLeft={1}>
               <Text color={theme.text.secondary}>
-                ({phase.tasks.filter((t) => t.state === 'done').length}/
-                {phase.tasks.length})
+                ({phase.tasks.filter((t) => t.state === 'done').length}/{phase.tasks.length})
               </Text>
             </Box>
           </Box>
@@ -283,12 +232,9 @@ export const SpecTimeline: React.FC<SpecTimelineProps> = ({
       {/* Progress bar */}
       <Box marginTop={1}>
         <Text color={theme.text.secondary}>
-          {'\u2588'.repeat(
-            Math.floor((doneTasks / Math.max(1, totalTasks)) * 20),
-          )}
-          {'\u2591'.repeat(
-            20 - Math.floor((doneTasks / Math.max(1, totalTasks)) * 20),
-          )}{' '}
+          {'\u2588'.repeat(Math.floor((doneTasks / Math.max(1, totalTasks)) * 20))}
+          {'\u2591'.repeat(20 - Math.floor((doneTasks / Math.max(1, totalTasks)) * 20))}
+          {' '}
           {Math.round((doneTasks / Math.max(1, totalTasks)) * 100)}%
         </Text>
       </Box>
