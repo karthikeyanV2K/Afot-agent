@@ -169,22 +169,32 @@ export const ToolConfirmationMessage: React.FC<
   const handleConfirm = useCallback(
     (outcome: ToolConfirmationOutcome, payload?: ToolConfirmationPayload) => {
       let effectiveOutcome = outcome;
-      if (outcome === ToolConfirmationOutcome.ProceedAutoApprove) {
-        // Enable global auto-approval for the rest of the session, then
-        // proceed + remember this tool as always-allowed.
-        try {
-          setAfotRuntimePermissions({ autoApprove: true });
-        } catch {
-          /* permission snapshot refresh is best-effort */
-        }
+      const enableAutoApprove =
+        outcome === ToolConfirmationOutcome.ProceedAutoApprove;
+      if (enableAutoApprove) {
+        // Proceed + remember this tool; enable global auto-approval for the
+        // rest of the session. Defer the flag flip until the confirmation has
+        // been dispatched so it cannot perturb the confirmation render cycle
+        // (the `setConstrainHeight` + two-footer race documented below).
         effectiveOutcome = ToolConfirmationOutcome.ProceedAlways;
       }
-      void confirm(callId, effectiveOutcome, payload).catch((error: unknown) => {
-        debugLogger.error(
-          `Failed to handle tool confirmation for ${callId}:`,
-          error,
-        );
-      });
+      const dispatch = confirm(callId, effectiveOutcome, payload).catch(
+        (error: unknown) => {
+          debugLogger.error(
+            `Failed to handle tool confirmation for ${callId}:`,
+            error,
+          );
+        },
+      );
+      if (enableAutoApprove) {
+        void dispatch.finally(() => {
+          try {
+            setAfotRuntimePermissions({ autoApprove: true });
+          } catch {
+            /* permission snapshot refresh is best-effort */
+          }
+        });
+      }
     },
     [confirm, callId],
   );
