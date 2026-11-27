@@ -188,6 +188,21 @@ export const ToolConfirmationMessage: React.FC<
       );
       if (enableAutoApprove) {
         void dispatch.finally(() => {
+          // Belt and braces: three independent signals so global
+          // auto-approval can't silently no-op in any bundle.
+          //  1) in-memory runtime flag (checked first)
+          //  2) env AFOT_AUTO_APPROVE=true
+          //  3) env AFOT_APPROVAL_MODE=yolo
+          try {
+            process.env['AFOT_AUTO_APPROVE'] = 'true';
+          } catch {
+            /* read-only env in exotic hosts */
+          }
+          try {
+            process.env['AFOT_APPROVAL_MODE'] = 'yolo';
+          } catch {
+            /* read-only env in exotic hosts */
+          }
           try {
             setAfotRuntimePermissions({ autoApprove: true });
           } catch {
