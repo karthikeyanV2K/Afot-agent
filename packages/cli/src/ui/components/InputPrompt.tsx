@@ -385,14 +385,13 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
   const showCursor =
     focus && isShellFocused && !isEmbeddedShellFocused && !copyModeEnabled;
 
-  useEffect(() => {
-    // Only re-scroll when the text itself changes. A cursor move (e.g. the
-    // down/up arrow keys) must NOT force the whole session to scroll to the
-    // bottom — that was reflowing/glitching the TUI, especially after an
-    // approval. MainContent already auto-scrolls to the end when new content
-    // arrives and the user is at the bottom.
-    appEvents.emit(AppEvent.ScrollToBottom);
-  }, [buffer.text]);
+  // NOTE: previously this emitted AppEvent.ScrollToBottom on
+  // [buffer.text, buffer.cursor]; that forced MainContent.scrollToEnd on
+  // every keystroke and cursor move, re-rendering/glitching the TUI while
+  // typing (and after an approval). MainContent already auto-scrolls to the
+  // end when new content arrives and the user is at the bottom, and
+  // Composer/AppContainer emit ScrollToBottom for action-required cases.
+  // Editing the prompt must not scroll the whole session.
 
   // Notify parent component about escape prompt state changes
   useEffect(() => {
