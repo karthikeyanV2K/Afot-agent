@@ -161,6 +161,13 @@ function useCommandSuggestions(
     const abortController = new AbortController();
     const { signal } = abortController;
 
+    // Do not keep the previous query's rows visible while the next fuzzy or
+    // argument completion is being calculated. Apart from flickering, stale
+    // rows can remain rendered over the prompt in terminals with incremental
+    // rendering enabled.
+    setSuggestions([]);
+    setIsLoading(false);
+
     const {
       isArgumentCompletion,
       leafCommand,

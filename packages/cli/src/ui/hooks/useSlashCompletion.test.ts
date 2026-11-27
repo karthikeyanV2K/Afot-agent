@@ -282,6 +282,49 @@ describe('useSlashCompletion', () => {
       unmount();
     });
 
+    it('should clear stale slash suggestions while filtering a new query', async () => {
+      const slashCommands = [
+        createTestCommand({ name: 'memory', description: 'Manage memory' }),
+        createTestCommand({ name: 'model', description: 'Select a model' }),
+      ];
+
+      const { result, rerender, unmount } = await renderHook(
+        ({ query }) =>
+          useTestHarnessForSlashCompletion(
+            true,
+            query,
+            slashCommands,
+            mockCommandContext,
+          ),
+        {
+          initialProps: { query: '/mem' },
+        },
+      );
+
+      await resolveMatch();
+      await waitFor(() => {
+        expect(result.current.suggestions).toHaveLength(1);
+      });
+
+      rerender({ query: '/mod' });
+      await waitFor(() => {
+        expect(result.current.suggestions).toHaveLength(0);
+      });
+
+      await resolveMatch();
+      await waitFor(() => {
+        expect(result.current.suggestions).toEqual([
+          {
+            label: 'model',
+            value: 'model',
+            description: 'Select a model',
+            commandKind: CommandKind.BUILT_IN,
+          },
+        ]);
+      });
+      unmount();
+    });
+
     it('should suggest commands based on partial altNames', async () => {
       const slashCommands = [
         createTestCommand({
