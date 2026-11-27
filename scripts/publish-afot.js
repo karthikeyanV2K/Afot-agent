@@ -14,7 +14,7 @@ const cliPkgPath = path.resolve(cliDir, 'package.json');
 const cliPkgBakPath = path.resolve(cliDir, 'package.json.bak');
 
 const versionArg = process.argv.find((arg) => arg.startsWith('--version='));
-const targetVersion = versionArg ? versionArg.split('=')[1] : '1.4.5';
+const targetVersion = versionArg ? versionArg.split('=')[1] : '1.4.6';
 
 if (process.argv.includes('--restore')) {
   console.log('--- Restoring packages/cli/package.json ---');
