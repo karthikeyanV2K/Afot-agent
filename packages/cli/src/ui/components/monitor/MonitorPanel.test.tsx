@@ -177,3 +177,55 @@ describe('<MonitorPanel /> finished turn', () => {
     unmount();
   });
 });
+
+describe('<MonitorPanel /> height budget', () => {
+  afterEach(() => {
+    delete process.env['AFOT_MONITOR'];
+  });
+  const many = Array.from(
+    { length: 40 },
+    (_, i) =>
+      ({
+        type: 'tool_group',
+        tools: [
+          {
+            callId: `m${i}`,
+            name: 'run_shell_command',
+            description: `step ${i}`,
+            resultDisplay: undefined,
+            status:
+              i < 39
+                ? CoreToolCallStatus.Success
+                : CoreToolCallStatus.Executing,
+            confirmationDetails: undefined,
+          },
+        ],
+      }) as unknown as HistoryItemWithoutId,
+  );
+
+  it.each([24, 30, 40, 80])(
+    'expanded never exceeds the budget at terminalHeight=%i',
+    async (terminalHeight) => {
+      process.env['AFOT_MONITOR'] = 'expanded';
+      const { lastFrame, unmount } = await renderWithProviders(
+        <MonitorPanel />,
+        { uiState: { pendingHistoryItems: many, terminalHeight } },
+      );
+      const lines = (lastFrame({ allowEmpty: true }) ?? '')
+        .split('\n')
+        .filter((l, i, a) => !(i === a.length - 1 && l.trim() === ''));
+      const budget = Math.max(0, Math.min(18, terminalHeight - 16));
+      expect(lines.length).toBeLessThanOrEqual(Math.max(budget, 2));
+      unmount();
+    },
+  );
+
+  it('hides entirely on a very short terminal', async () => {
+    process.env['AFOT_MONITOR'] = 'expanded';
+    const { lastFrame, unmount } = await renderWithProviders(<MonitorPanel />, {
+      uiState: { pendingHistoryItems: many, terminalHeight: 14 },
+    });
+    expect(lastFrame({ allowEmpty: true }) ?? '').toBe('');
+    unmount();
+  });
+});

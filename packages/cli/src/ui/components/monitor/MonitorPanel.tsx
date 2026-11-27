@@ -34,6 +34,7 @@ import {
   pickRunners,
   pollStatus,
 } from '../../utils/monitorRunner.js';
+import { planMonitorLayout } from '../../utils/monitorLayout.js';
 import { theme } from '../../semantic-colors.js';
 import { SpecTimeline } from './SpecTimeline.js';
 
@@ -97,8 +98,13 @@ function ColoredTimeline({ timeline }: { timeline: string }) {
 
 export const MonitorPanel: React.FC = () => {
   const mode = getAfotMonitorMode();
-  const { pendingHistoryItems, history, terminalWidth, backgroundTasks } =
-    useUIState();
+  const {
+    pendingHistoryItems,
+    history,
+    terminalWidth,
+    terminalHeight,
+    backgroundTasks,
+  } = useUIState();
   const requests = useMonitorRequests();
   const toolCalls = useMemo(
     () => getAllToolCalls(pendingHistoryItems),
@@ -189,6 +195,15 @@ export const MonitorPanel: React.FC = () => {
     elapsed: s.state === 'done' || s.state === 'running' ? elapsed(s.id) : '',
   }));
 
+  const layout = planMonitorLayout({
+    terminalHeight,
+    steps: stepList.length,
+    runners: runners.length,
+    runnerLines: runners[0]?.lines.length ?? 0,
+    requests: requests.length,
+  });
+  if (layout.view === 'hidden') return null;
+
   // ──────────────────────────────────────────────────────────────
   // SPEC TIMELINE VIEW
   // ──────────────────────────────────────────────────────────────
@@ -203,7 +218,7 @@ export const MonitorPanel: React.FC = () => {
   // ──────────────────────────────────────────────────────────────
   // COLLAPSED VIEW (compact)
   // ──────────────────────────────────────────────────────────────
-  if (mode === 'compact') {
+  if (mode === 'compact' || layout.view === 'compact') {
     return (
       <Box flexDirection="column" paddingX={1}>
         <Box>
@@ -228,12 +243,20 @@ export const MonitorPanel: React.FC = () => {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // EXPANDED VIEW
+  // EXPANDED VIEW (height-budgeted: never taller than layout.rows)
   // ──────────────────────────────────────────────────────────────
+  const shownSteps = stepList.slice(-layout.steps);
+  const hiddenSteps = stepList.length - shownSteps.length;
+  const shownRunner = runners[0];
+  const shownRequests = requests.slice(0, layout.requests);
   return (
-    <Box flexDirection="column" paddingX={1} width={width + 2}>
-      {/* Timeline header */}
-      <Box marginBottom={1}>
+    <Box
+      flexDirection="column"
+      paddingX={1}
+      width={width + 2}
+      height={layout.rows}
+    >
+      <Box>
         <Text bold color={theme.text.accent}>
           TIMELINE
         </Text>
@@ -245,86 +268,71 @@ export const MonitorPanel: React.FC = () => {
         </Text>
       </Box>
 
-      {/* Steps checklist */}
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color={theme.text.accent}>
-          STEPS
-        </Text>
-        {stepList.length === 0 ? (
-          <Text color={theme.text.secondary}>no steps</Text>
-        ) : (
-          stepList.map((s) => (
+      {layout.steps > 0 && (
+        <Box flexDirection="column">
+          <Text bold color={theme.text.accent} wrap="truncate-end">
+            STEPS{hiddenSteps > 0 ? ` (+${hiddenSteps} earlier)` : ''}
+          </Text>
+          {shownSteps.map((s) => (
             <Text key={s.num} color={COLOR[s.state]} wrap="truncate-end">
-              {STATE_CHECK[s.state]} {s.num}.{' '}
-              {clip(s.label, width - 14)}
+              {STATE_CHECK[s.state]} {s.num}. {clip(s.label, width - 14)}
               {s.elapsed ? `  ${s.elapsed}` : ''}
             </Text>
-          ))
-        )}
-      </Box>
-
-      {/* Command runner */}
-      {runners.length > 0 && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text bold color={theme.text.accent}>
-            COMMAND RUNNER
-          </Text>
-          {runners.slice(0, 2).map((r) => (
-            <Box key={r.key} flexDirection="column" marginTop={1}>
-              <Text
-                color={
-                  r.status === 'running'
-                    ? theme.text.accent
-                    : r.exitCode === 0
-                      ? theme.status.success
-                      : theme.status.error
-                }
-                wrap="truncate-end"
-              >
-                {r.pid !== undefined ? `PID ${r.pid}  ` : ''}
-                {clip(r.command, Math.max(10, width - 30))}
-                {'  '}
-                {r.status === 'running'
-                  ? `${r.source}  ${elapsed(r.key)}`
-                  : `exited ${r.exitCode ?? '?'}`}
-              </Text>
-              {r.lines.slice(0, 3).map((l, i) => (
-                <Text key={i} color={theme.text.secondary} wrap="truncate-end">
-                  {'> '}
-                  {clip(l, width - 4)}
-                </Text>
-              ))}
-            </Box>
           ))}
         </Box>
       )}
 
-      {/* Polling / requests */}
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold color={theme.text.accent}>
-          POLLING / REQUESTS
-        </Text>
-        {requests.length === 0 ? (
-          <Text color={theme.text.secondary}>none yet</Text>
-        ) : (
-          requests.slice(-6).map((r) => (
-            <Text
-              key={r.id}
-              color={theme.text.secondary}
-              wrap="truncate-end"
-            >
+      {layout.runnerRows > 0 && shownRunner && (
+        <Box flexDirection="column">
+          <Text bold color={theme.text.accent}>
+            COMMAND RUNNER
+          </Text>
+          <Text
+            color={
+              shownRunner.status === 'running'
+                ? theme.text.accent
+                : shownRunner.exitCode === 0
+                  ? theme.status.success
+                  : theme.status.error
+            }
+            wrap="truncate-end"
+          >
+            {shownRunner.pid !== undefined ? `PID ${shownRunner.pid}  ` : ''}
+            {clip(shownRunner.command, Math.max(10, width - 30))}
+            {'  '}
+            {shownRunner.status === 'running'
+              ? `${shownRunner.source}  ${elapsed(shownRunner.key)}`
+              : `exited ${shownRunner.exitCode ?? '?'}`}
+          </Text>
+          {shownRunner.lines.slice(-layout.runnerOutput).map((l, i) => (
+            <Text key={i} color={theme.text.secondary} wrap="truncate-end">
+              {'> '}
+              {clip(l, width - 4)}
+            </Text>
+          ))}
+        </Box>
+      )}
+
+      {layout.requests > 0 && (
+        <Box flexDirection="column">
+          <Text bold color={theme.text.accent}>
+            POLLING / REQUESTS
+          </Text>
+          {shownRequests.map((r) => (
+            <Text key={r.id} color={theme.text.secondary} wrap="truncate-end">
               {String(r.id).padStart(3)} {hhmmss(r.ts)} {r.type.padEnd(4)}{' '}
               {clip(r.target, 24).padEnd(24)} {r.status.padEnd(7)}
               {r.ms !== undefined ? `${r.ms}ms` : '—'}
             </Text>
-          ))
-        )}
-      </Box>
+          ))}
+        </Box>
+      )}
 
-      {/* Help footer */}
-      <Text color={theme.text.secondary} wrap="truncate-end">
-        alt+t close · ↑↓ select · enter show output · k kill cmd · p pause
-      </Text>
+      {layout.hint && (
+        <Text color={theme.text.secondary} wrap="truncate-end">
+          Alt+T: compact / off
+        </Text>
+      )}
     </Box>
   );
 };
