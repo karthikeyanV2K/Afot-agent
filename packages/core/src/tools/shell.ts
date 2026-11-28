@@ -752,9 +752,12 @@ export class ShellToolInvocation extends BaseToolInvocation<
       let hasPendingOutput = false;
       let isBinaryStream = false;
 
+      // AFOT: background execution is ON by default so long commands/tests
+      // can run while the agent keeps working and is resumed on completion.
+      // Opt out with AFOT_ALLOW_BACKGROUND=false.
       const allowBackground =
         process.env['NODE_ENV'] === 'test' ||
-        process.env['AFOT_ALLOW_BACKGROUND'] === 'true';
+        process.env['AFOT_ALLOW_BACKGROUND'] !== 'false';
 
       const appendToLiveOutputBuffer = (chunk: string) => {
         const currentOutput =
@@ -926,7 +929,6 @@ export class ShellToolInvocation extends BaseToolInvocation<
         }
 
         let completed = false;
-        // AFOT: Never move commands to the background. Always stream full output in the foreground TUI session.
         if (allowBackground && this.params.is_background) {
           const sessionId = this.context.config?.getSessionId?.() ?? 'default';
           const delay = this.params.delay_ms ?? BACKGROUND_DELAY_MS;
@@ -1062,7 +1064,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
         (this.params.is_background || result.backgrounded) &&
         allowBackground
       ) {
-        llmContent = `Command moved to background (PID: ${result.pid}). Output hidden. Press Ctrl+B to view.`;
+        llmContent = `Command moved to background (PID: ${result.pid}). Continue with other work; you are notified automatically with the result when it finishes. Use read_background_output (pid) only to peek at progress; do not poll in a loop.`;
         data = {
           pid: result.pid,
           command: this.params.command,
@@ -1110,7 +1112,7 @@ export class ShellToolInvocation extends BaseToolInvocation<
           (this.params.is_background || result.backgrounded) &&
           allowBackground
         ) {
-          returnDisplay = `Command moved to background (PID: ${result.pid}). Output hidden. Press Ctrl+B to view.`;
+          returnDisplay = `Command moved to background (PID: ${result.pid}). Continue with other work; you are notified automatically with the result when it finishes. Use read_background_output (pid) only to peek at progress; do not poll in a loop.`;
         } else if (result.aborted) {
           const cancelMsg = timeoutMessage || 'Command cancelled by user.';
           if (result.output.trim()) {

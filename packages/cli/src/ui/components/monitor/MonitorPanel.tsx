@@ -21,6 +21,11 @@ import {
   getLastTurnToolCalls,
 } from '../../utils/historyUtils.js';
 import {
+  getLatestTodos,
+  TODO_CHECK,
+  windowTodos,
+} from '../../utils/monitorTodos.js';
+import {
   buildSteps,
   clip,
   progressCounts,
@@ -116,6 +121,10 @@ export const MonitorPanel: React.FC = () => {
     [history, pendingHistoryItems],
   );
   const steps = useMemo(() => buildSteps(turnCalls), [turnCalls]);
+  const todos = useMemo(
+    () => getLatestTodos(history ?? [], pendingHistoryItems),
+    [history, pendingHistoryItems],
+  );
   const runners = useMemo(
     () => pickRunners(toolCalls, backgroundTasks, 5),
     [toolCalls, backgroundTasks],
@@ -166,12 +175,18 @@ export const MonitorPanel: React.FC = () => {
   if (
     mode !== 'spec' &&
     steps.length === 0 &&
+    todos.length === 0 &&
     requests.length === 0 &&
     runners.length === 0
   ) {
     return null;
   }
-  if (mode === 'compact' && steps.length === 0 && runners.length === 0) {
+  if (
+    mode === 'compact' &&
+    steps.length === 0 &&
+    todos.length === 0 &&
+    runners.length === 0
+  ) {
     return null;
   }
 
@@ -197,6 +212,7 @@ export const MonitorPanel: React.FC = () => {
 
   const layout = planMonitorLayout({
     terminalHeight,
+    todos: todos.length,
     steps: stepList.length,
     runners: runners.length,
     runnerLines: runners[0]?.lines.length ?? 0,
@@ -225,7 +241,9 @@ export const MonitorPanel: React.FC = () => {
           <ColoredTimeline timeline={timeline} />
           <Text color={theme.text.secondary}>
             {'   '}
-            {done}/{total}
+            {todos.length > 0
+              ? `tasks ${todos.filter((t) => t.status === 'completed').length}/${todos.length}`
+              : `${done}/${total}`}
           </Text>
         </Box>
         <Text color={theme.text.secondary} wrap="truncate-end">
@@ -245,6 +263,8 @@ export const MonitorPanel: React.FC = () => {
   // ──────────────────────────────────────────────────────────────
   // EXPANDED VIEW (height-budgeted: never taller than layout.rows)
   // ──────────────────────────────────────────────────────────────
+  const todoWin = windowTodos(todos, layout.todos);
+  const todosDone = todos.filter((t) => t.status === 'completed').length;
   const shownSteps = stepList.slice(-layout.steps);
   const hiddenSteps = stepList.length - shownSteps.length;
   const shownRunner = runners[0];
@@ -268,10 +288,36 @@ export const MonitorPanel: React.FC = () => {
         </Text>
       </Box>
 
+      {layout.todos > 0 && (
+        <Box flexDirection="column">
+          <Text bold color={theme.text.accent} wrap="truncate-end">
+            TASKS {todosDone}/{todos.length}
+            {todoWin.hidden > 0 ? ` (+${todoWin.hidden} more)` : ''}
+          </Text>
+          {todoWin.shown.map((t, i) => (
+            <Text
+              key={i}
+              color={
+                t.status === 'completed'
+                  ? theme.status.success
+                  : t.status === 'in_progress'
+                    ? theme.text.accent
+                    : t.status === 'blocked'
+                      ? theme.status.error
+                      : theme.text.secondary
+              }
+              wrap="truncate-end"
+            >
+              {TODO_CHECK[t.status]} {clip(t.description, width - 8)}
+            </Text>
+          ))}
+        </Box>
+      )}
+
       {layout.steps > 0 && (
         <Box flexDirection="column">
           <Text bold color={theme.text.accent} wrap="truncate-end">
-            STEPS{hiddenSteps > 0 ? ` (+${hiddenSteps} earlier)` : ''}
+            ACTIVITY{hiddenSteps > 0 ? ` (+${hiddenSteps} earlier)` : ''}
           </Text>
           {shownSteps.map((s) => (
             <Text key={s.num} color={COLOR[s.state]} wrap="truncate-end">

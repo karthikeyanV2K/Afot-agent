@@ -20,7 +20,9 @@ export const MONITOR_MIN_EXPANDED_ROWS = 6;
 
 export interface MonitorLayoutInput {
   terminalHeight: number;
-  /** Number of steps in the current turn. */
+  /** Agent task list (write_todos) items. Highest priority. */
+  todos?: number;
+  /** Number of steps (tool calls) in the current turn. */
   steps: number;
   /** Number of runner panes available (foreground/background). */
   runners: number;
@@ -36,6 +38,8 @@ export interface MonitorLayout {
   /** Total rows the expanded view will actually use. */
   rows: number;
   steps: number;
+  /** Rows of the agent task list (items only; header is extra). */
+  todos: number;
   /** Rows (command line + output) for the runner section, 0 = hidden. */
   runnerRows: number;
   runnerOutput: number;
@@ -53,7 +57,8 @@ export function monitorBudget(terminalHeight: number): number {
   );
 }
 
-const STEPS_WANT = 6;
+const TODOS_WANT = 8;
+const STEPS_WANT = 5;
 const RUNNER_OUT_WANT = 3;
 const REQUESTS_WANT = 6;
 
@@ -64,6 +69,7 @@ export function planMonitorLayout(i: MonitorLayoutInput): MonitorLayout {
     budget,
     rows: 0,
     steps: 0,
+    todos: 0,
     runnerRows: 0,
     runnerOutput: 0,
     requests: 0,
@@ -75,12 +81,18 @@ export function planMonitorLayout(i: MonitorLayoutInput): MonitorLayout {
   }
 
   let left = budget - 1; // the TIMELINE row
+  let todos = 0;
   let steps = 0;
   let runnerOutput = 0;
   let runnerRows = 0;
   let requests = 0;
 
   // Minimums in priority order: each costs a header row plus content.
+  const todoCount = i.todos ?? 0;
+  if (todoCount > 0 && left >= 2) {
+    todos = 1;
+    left -= 2;
+  }
   if (i.steps > 0 && left >= 2) {
     steps = 1;
     left -= 2;
@@ -95,6 +107,7 @@ export function planMonitorLayout(i: MonitorLayoutInput): MonitorLayout {
   }
   // Extra rows, round-robin in the same priority order.
   const caps = {
+    todos: Math.min(todoCount, TODOS_WANT),
     steps: Math.min(i.steps, STEPS_WANT),
     out: Math.min(i.runnerLines, RUNNER_OUT_WANT),
     req: Math.min(i.requests, REQUESTS_WANT),
@@ -102,6 +115,11 @@ export function planMonitorLayout(i: MonitorLayoutInput): MonitorLayout {
   let progressed = true;
   while (left > 0 && progressed) {
     progressed = false;
+    if (todos > 0 && todos < caps.todos && left > 0) {
+      todos++;
+      left--;
+      progressed = true;
+    }
     if (steps > 0 && steps < caps.steps && left > 0) {
       steps++;
       left--;
@@ -123,6 +141,7 @@ export function planMonitorLayout(i: MonitorLayoutInput): MonitorLayout {
 
   const rows =
     1 +
+    (todos > 0 ? 1 + todos : 0) +
     (steps > 0 ? 1 + steps : 0) +
     (runnerRows > 0 ? 1 + runnerRows + runnerOutput : 0) +
     (requests > 0 ? 1 + requests : 0) +
@@ -132,6 +151,7 @@ export function planMonitorLayout(i: MonitorLayoutInput): MonitorLayout {
     budget,
     rows,
     steps,
+    todos,
     runnerRows: runnerRows > 0 ? 1 : 0,
     runnerOutput,
     requests,

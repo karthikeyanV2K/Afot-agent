@@ -611,6 +611,22 @@ export interface LoadCliConfigOptions {
   loadedSettings?: LoadedSettings;
 }
 
+/**
+ * AFOT: background commands report back to the agent by default so a long
+ * build/test can finish while the agent works, then the agent resumes.
+ * Precedence: AFOT_BG_COMPLETION env (inject|notify|off) > setting 'notify'
+ * > inject. The schema default 'silent' is indistinguishable from unset, so
+ * opt out with AFOT_BG_COMPLETION=off.
+ */
+export function resolveBackgroundCompletionBehavior(
+  setting: string | undefined,
+): string {
+  const env = process.env['AFOT_BG_COMPLETION']?.trim().toLowerCase();
+  if (env === 'off' || env === 'silent') return 'silent';
+  if (env === 'inject' || env === 'notify') return env;
+  return setting === 'notify' ? 'notify' : 'inject';
+}
+
 export async function loadCliConfig(
   settings: MergedSettings,
   sessionId: string,
@@ -735,13 +751,21 @@ export async function loadCliConfig(
 
   if (settings.general?.allowAllPaths !== undefined) {
     setAllowAllPaths(Boolean(settings.general.allowAllPaths));
-    setAfotRuntimePermissions({ allowAllPaths: Boolean(settings.general.allowAllPaths) });
+    setAfotRuntimePermissions({
+      allowAllPaths: Boolean(settings.general.allowAllPaths),
+    });
   }
   if (settings.general?.autoApproveShell !== undefined) {
-    setAfotRuntimePermissions({ autoApproveShell: Boolean(settings.general.autoApproveShell) });
+    setAfotRuntimePermissions({
+      autoApproveShell: Boolean(settings.general.autoApproveShell),
+    });
   }
   if (settings.general?.autoApproveWorkspaceWrites !== undefined) {
-    setAfotRuntimePermissions({ autoApproveWorkspaceWrites: Boolean(settings.general.autoApproveWorkspaceWrites) });
+    setAfotRuntimePermissions({
+      autoApproveWorkspaceWrites: Boolean(
+        settings.general.autoApproveWorkspaceWrites,
+      ),
+    });
   }
 
   if (rawApprovalMode) {
@@ -1116,8 +1140,9 @@ export async function loadCliConfig(
     useRenderProcess: settings.ui?.renderProcess,
     useRipgrep: settings.tools?.useRipgrep,
     enableInteractiveShell: settings.tools?.shell?.enableInteractiveShell,
-    shellBackgroundCompletionBehavior: settings.tools?.shell
-      ?.backgroundCompletionBehavior as string | undefined,
+    shellBackgroundCompletionBehavior: resolveBackgroundCompletionBehavior(
+      settings.tools?.shell?.backgroundCompletionBehavior as string | undefined,
+    ),
     shellToolInactivityTimeout: settings.tools?.shell?.inactivityTimeout,
     enableShellOutputEfficiency:
       settings.tools?.shell?.enableShellOutputEfficiency ?? true,

@@ -85,6 +85,7 @@ import {
   ChangeAuthRequestedError,
   ProjectIdRequiredError,
   buildUserSteeringHintPrompt,
+  formatBackgroundCompletionForModel,
   logBillingEvent,
   ApiKeyUpdatedEvent,
   LegacyAgentProtocol,
@@ -337,6 +338,8 @@ function refreshStdoutSize(stream: NodeJS.WriteStream): void {
     resizableStream._refreshSize();
   }
 }
+
+const BG_RESUME_MAX_PER_MINUTE = 6;
 
 export const AppContainer = (props: AppContainerProps) => {
   const isHelpDismissKey = useIsHelpDismissKey();
@@ -1364,6 +1367,8 @@ export const AppContainer = (props: AppContainerProps) => {
   }, [pendingRestorePrompt, inputHistory, historyManager.history]);
 
   const pendingHintsRef = useRef<string[]>([]);
+  const pendingBgRef = useRef<string[]>([]);
+  const bgResumeTimesRef = useRef<number[]>([]);
   const [pendingHintCount, setPendingHintCount] = useState(0);
 
   const consumePendingHints = useCallback(() => {
@@ -1381,7 +1386,11 @@ export const AppContainer = (props: AppContainerProps) => {
       if (source !== 'user_steering' && source !== 'background_completion') {
         return;
       }
-      pendingHintsRef.current.push(text);
+      if (source === 'background_completion') {
+        pendingBgRef.current.push(text);
+      } else {
+        pendingHintsRef.current.push(text);
+      }
       setPendingHintCount((prev) => prev + 1);
     };
     config.injectionService.onInjection(hintListener);
@@ -2638,6 +2647,42 @@ export const AppContainer = (props: AppContainerProps) => {
     shortcutsHelpVisible,
     isPassiveShortcutsHelpState,
     setShortcutsHelpVisible,
+  ]);
+
+  // Background command finished while idle: resume the agent with the
+  // (untrusted, truncated) output. Rate-limited to protect free quotas.
+  useEffect(() => {
+    if (
+      !isConfigInitialized ||
+      pendingBgRef.current.length === 0 ||
+      streamingState !== StreamingState.Idle ||
+      !isMcpReady ||
+      isToolAwaitingConfirmation(pendingHistoryItems)
+    ) {
+      return;
+    }
+    const now = Date.now();
+    bgResumeTimesRef.current = bgResumeTimesRef.current.filter(
+      (t) => now - t < 60_000,
+    );
+    if (bgResumeTimesRef.current.length >= BG_RESUME_MAX_PER_MINUTE) {
+      const timer = setTimeout(() => setPendingHintCount((c) => c + 1), 5_000);
+      return () => clearTimeout(timer);
+    }
+    bgResumeTimesRef.current.push(now);
+    const text = pendingBgRef.current.join('\n\n');
+    pendingBgRef.current = [];
+    void submitQuery([
+      { text: formatBackgroundCompletionForModel(text.slice(0, 8000)) },
+    ]);
+    return undefined;
+  }, [
+    isConfigInitialized,
+    isMcpReady,
+    streamingState,
+    submitQuery,
+    pendingHistoryItems,
+    pendingHintCount,
   ]);
 
   useEffect(() => {
